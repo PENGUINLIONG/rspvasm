@@ -381,6 +381,9 @@ impl InstantiateBlocks {
 
                 match node.as_ref() {
                     Node::Block(_) => {},
+                    Node::Instantiate(_) => {
+                        bail!("attempting to instantiate a block that is already instantiated: {:?}", node)
+                    }
                     _ => bail!("expected block, got: {:?}", instantiate.node),
                 }
 

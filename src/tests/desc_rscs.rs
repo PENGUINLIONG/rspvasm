@@ -92,7 +92,7 @@ layout {
 "#;
 
 #[test]
-fn test_compile_storage_buffer_write() {
+fn test_compile_complex_functional() {
     let code = HEADER.to_string() + r#"
 ~Op::Capability(Capability::Shader);
 let glsl_std_450_ = ~Op::ExtInstImport("GLSL.std.450") -> _;
@@ -100,6 +100,11 @@ let glsl_std_450_ = ~Op::ExtInstImport("GLSL.std.450") -> _;
 
 let void_ = ~Op::TypeVoid -> _;
 let function_void_ = ~Op::TypeFunction(void_) -> _;
+
+let make_block = |body| {
+    let label_ = ~Op::Label -> _;
+    body();
+};
 
 let make_function = |body| {
     let main_ = ~Op::Function(FunctionControl::None, function_void_) -> void_;
@@ -114,13 +119,15 @@ let make_entry_point = |function, group_size_x, group_size_y, group_size_z| {
     ~Op::ExecutionMode(function, ExecutionMode::LocalSize, group_size_x, group_size_y, group_size_z);
 };
 
+let return = {
+    ~Op::Return;
+};
 
-let main_ = make_function(
-    body: {
-        let label_ = ~Op::Label -> _;
-        ~Op::Return;
-    }
-);
+let main_ = make_function(body: {
+    make_block(body: {
+        return();
+    });
+});
 
 make_entry_point(
     function: main_,
