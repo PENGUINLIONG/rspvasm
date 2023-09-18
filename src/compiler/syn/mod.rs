@@ -2,6 +2,8 @@ use std::{rc::Rc, fmt};
 
 use anyhow::Result;
 
+use super::common::span::{Span, SpanBuilder};
+
 pub mod token;
 pub mod punctuated;
 pub mod expr;
@@ -9,12 +11,15 @@ pub mod pat;
 pub mod path;
 pub mod stmt;
 pub mod block;
+pub mod meta;
 pub mod lower;
 
 pub trait Parse {
     fn parse(input: &mut ParseBuffer) -> Result<Self>
     where
         Self: Sized;
+
+    fn span(&self) -> Span;
 }
 impl<P: Parse> Parse for Vec<P> {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
@@ -24,6 +29,14 @@ impl<P: Parse> Parse for Vec<P> {
         }
         Ok(out)
     }
+
+    fn span(&self) -> Span {
+        let mut sb = SpanBuilder::new();
+        for p in self {
+            sb.push(p.span());
+        }
+        sb.into()
+    }
 }
 impl<P: Parse> Parse for Option<P> {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
@@ -32,10 +45,21 @@ impl<P: Parse> Parse for Option<P> {
             Err(_) => Ok(None),
         }
     }
+
+    fn span(&self) -> Span {
+        match self {
+            Some(p) => p.span(),
+            None => Span::call_site(),
+        }
+    }
 }
 impl Parse for () {
     fn parse(_input: &mut ParseBuffer) -> Result<Self> {
         Ok(())
+    }
+
+    fn span(&self) -> Span {
+        Span::call_site()
     }
 }
 impl<P0: Parse, P1: Parse> Parse for (P0, P1) {
@@ -43,6 +67,10 @@ impl<P0: Parse, P1: Parse> Parse for (P0, P1) {
         let p0 = input.parse::<P0>()?;
         let p1 = input.parse::<P1>()?;
         Ok((p0, p1))
+    }
+
+    fn span(&self) -> Span {
+        Span::join([self.0.span(), self.1.span()])
     }
 }
 impl<P0: Parse, P1: Parse, P2: Parse> Parse for (P0, P1, P2) {
@@ -52,11 +80,19 @@ impl<P0: Parse, P1: Parse, P2: Parse> Parse for (P0, P1, P2) {
         let p2 = input.parse::<P2>()?;
         Ok((p0, p1, p2))
     }
+
+    fn span(&self) -> Span {
+        Span::join([self.0.span(), self.1.span(), self.2.span()])
+    }
 }
 impl<P: Parse> Parse for Box<P> {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
         let p = input.parse::<P>()?;
         Ok(Box::new(p))
+    }
+
+    fn span(&self) -> Span {
+        self.as_ref().span()
     }
 }
 
@@ -96,15 +132,17 @@ impl<P: Peek> Peek for Box<P> {
 
 pub struct ParseBuffer {
     code: Rc<String>,
+    beg: usize, // in bytes
     pos: usize, // in bytes
     end: usize, // in bytes
 }
 impl ParseBuffer {
     pub fn new(code: &str) -> Self {
         let mut out = Self {
-            end: code.len(),
             code: Rc::new(code.to_owned()),
+            beg: 0,
             pos: 0,
+            end: code.len(),
         };
         out.trim_start();
         out
@@ -119,6 +157,13 @@ impl ParseBuffer {
             .take_while(u8::is_ascii_whitespace)
             .count();
         self.pos += offset;
+    }
+
+    pub fn span(&self) -> Span {
+        Span {
+            lo: self.beg,
+            hi: self.end,
+        }
     }
 
     pub fn advance_n(&mut self, n: usize) {
@@ -140,10 +185,15 @@ impl ParseBuffer {
     pub fn slice(&self, start: usize, end: usize) -> ParseBuffer {
         assert!(start <= end);
         let code = Rc::clone(&self.code);
-        let pos = (self.pos + start).min(self.end);
+        let beg = (self.pos + start).min(self.end);
         let end = (self.pos + end).min(self.end);
 
-        let mut out = Self { code, pos, end };
+        let mut out = Self {
+            code,
+            beg,
+            pos: beg,
+            end,
+        };
         out.trim_start();
         out
     }

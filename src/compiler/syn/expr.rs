@@ -1,31 +1,52 @@
 use anyhow::{ bail, Result };
 use super::{token::*, path::Path, punctuated::Punctuated, block::{Block, BlockHeader}, pat::Pat};
-use crate::Token;
+use crate::{Token, compiler::common::span::Span};
 use super::{ Parse, ParseBuffer };
 
 
 #[derive(Debug, Clone)]
 pub struct ExprLiteral {
     pub literal: Literal,
+    pub span: Span,
 }
 impl Parse for ExprLiteral {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
         let literal = input.parse::<Literal>()?;
-        Ok(Self { literal })
+        let span = literal.span();
+
+        let out = Self {
+            literal,
+            span,
+        };
+        Ok(out)
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct ExprPath {
     pub path: Path,
+    pub span: Span,
 }
 impl Parse for ExprPath {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
         let path = input.parse::<Path>()?;
-        Ok(Self { path })
+        let span = path.span;
+
+        let out = Self {
+            path,
+            span,
+        };
+        Ok(out)
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
-
 
 #[derive(Debug, Clone)]
 pub struct ExprEmit {
@@ -33,6 +54,7 @@ pub struct ExprEmit {
     pub opcode: Box<Pat>,
     pub operands: Option<Box<ParenGroup<Punctuated<Expr, Token![,]>>>>,
     pub result_type: Option<(Token![->], Box<Pat>)>,
+    pub span: Span,
 }
 impl Parse for ExprEmit {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
@@ -50,13 +72,25 @@ impl Parse for ExprEmit {
             None
         };
 
+        let span = Span::join([
+            tilde_token.span(),
+            opcode.span(),
+            operands.span(),
+            result_type.span(),
+        ]);
+
         let out = Self {
             tilde_token,
             opcode: Box::new(opcode),
             operands,
             result_type,
+            span,
         };
         Ok(out)
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
@@ -65,31 +99,51 @@ pub struct Argument {
     pub param_name: Ident,
     pub colon_token: Token![:],
     pub value: Expr,
+    pub span: Span,
 }
 impl Parse for Argument {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
         let param_name = input.parse::<Ident>()?;
         let colon_token = input.parse::<Token![:]>()?;
         let value = input.parse::<Expr>()?;
+
+        let span = Span::join([
+            param_name.span(),
+            colon_token.span(),
+            value.span(),
+        ]);
+
         Ok(Self {
             param_name,
             colon_token,
             value,
+            span,
         })
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct ArgumentList {
     pub args: Box<Punctuated<Argument, Token![,]>>,
+    pub span: Span,
 }
 impl Parse for ArgumentList {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
         let args = input.parse::<Punctuated<Argument, Token![,]>>()?;
+        let span = args.span();
 
         return Ok(Self {
-            args: Box::new(args)
+            args: Box::new(args),
+            span,
         });
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
@@ -97,6 +151,7 @@ impl Parse for ArgumentList {
 pub struct ExprBlock {
     pub block_header: Option<BlockHeader>,
     pub block: BraceGroup<Block>,
+    pub span: Span,
 }
 impl Parse for ExprBlock {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
@@ -107,7 +162,22 @@ impl Parse for ExprBlock {
             None
         };
         let block = input.parse::<BraceGroup<Block>>()?;
-        Ok(Self { block_header, block })
+
+        let span = Span::join([
+            block_header.span(),
+            block.span(),
+        ]);
+
+        let out = Self {
+            block_header,
+            block,
+            span,
+        };
+        Ok(out)
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
@@ -115,7 +185,63 @@ impl Parse for ExprBlock {
 pub struct ExprCall {
     pub expr: Box<Expr>,
     pub args: ParenGroup<ArgumentList>,
+    pub span: Span,
 }
+impl Parse for ExprCall {
+    fn parse(_: &mut ParseBuffer) -> Result<Self> {
+        panic!("use Expr::parse instead");
+    }
+
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ExprIfThenElse {
+    pub if_token: Token![if],
+    pub condition: Box<Expr>,
+    pub then_branch: Box<Expr>,
+    pub else_branch: Option<(Token![else], Box<Expr>)>,
+    pub span: Span,
+}
+impl Parse for ExprIfThenElse {
+    fn parse(input: &mut ParseBuffer) -> Result<Self> {
+        let if_token = input.parse::<Token![if]>()?;
+        let condition = input.parse::<Expr>()?;
+        let then_branch = input.parse::<ExprBlock>()?;
+        let then_branch = Expr::Block(then_branch);
+        let else_branch = if input.peek::<Token![else]>() {
+            let else_token = input.parse::<Token![else]>()?;
+            let else_branch = input.parse::<ExprBlock>()?;
+            let else_branch = Expr::Block(else_branch);
+            Some((else_token, Box::new(else_branch)))
+        } else {
+            None
+        };
+
+        let span = Span::join([
+            if_token.span(),
+            condition.span(),
+            then_branch.span(),
+            else_branch.span(),
+        ]);
+
+        let out = Self {
+            if_token,
+            condition: Box::new(condition),
+            then_branch: Box::new(then_branch),
+            else_branch,
+            span,
+        };
+        Ok(out)
+    }
+
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
 
 #[derive(Debug, Clone)]
 pub enum Expr {
@@ -124,6 +250,7 @@ pub enum Expr {
     Emit(ExprEmit),
     Block(ExprBlock),
     Call(ExprCall),
+    IfThenElse(ExprIfThenElse),
 }
 impl Parse for Expr {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
@@ -134,14 +261,24 @@ impl Parse for Expr {
         if input.peek::<Token![|]>() || input.peek::<BraceGroup<()>>() {
             let block = input.parse::<ExprBlock>()?;
             if input.peek::<ParenGroup<()>>() {
+                let span = Span::join([
+                    block.span(),
+                    input.span(),
+                ]);
                 let call = ExprCall {
                     expr: Box::new(Self::Block(block)),
                     args: input.parse::<ParenGroup<ArgumentList>>()?,
+                    span,
                 };
                 return Ok(Self::Call(call));
             } else {
                 return Ok(Self::Block(block));
             }
+        }
+
+        if input.peek::<Token![if]>() {
+            let if_then_else = input.parse::<ExprIfThenElse>()?;
+            return Ok(Self::IfThenElse(if_then_else));
         }
 
         if input.peek::<Literal>() {
@@ -150,9 +287,14 @@ impl Parse for Expr {
         } else if input.peek::<Ident>() {
             let path = input.parse::<ExprPath>()?;
             if input.peek::<ParenGroup<()>>() {
+                let span = Span::join([
+                    path.span(),
+                    input.span(),
+                ]);
                 let call = ExprCall {
                     expr: Box::new(Self::Path(path)),
                     args: input.parse::<ParenGroup<ArgumentList>>()?,
+                    span,
                 };
                 return Ok(Self::Call(call));
             } else {
@@ -161,6 +303,17 @@ impl Parse for Expr {
         }
 
         bail!("expected literal or ident ({})", input.surrounding());
+    }
+
+    fn span(&self) -> Span {
+        match self {
+            Self::Literal(literal) => literal.span(),
+            Self::Path(path) => path.span(),
+            Self::Emit(emit) => emit.span(),
+            Self::Block(block) => block.span(),
+            Self::Call(call) => call.span(),
+            Self::IfThenElse(if_then_else) => if_then_else.span(),
+        }
     }
 }
 
@@ -200,6 +353,15 @@ mod tests {
         let code = "|a, b| { ~0(1, 2, 3) }";
         let mut input = ParseBuffer::from(code);
         let expr = input.parse::<ExprBlock>().unwrap();
+        println!("{:#?}", expr);
+        assert!(input.is_empty());
+    }
+
+    #[test]
+    fn test_if_then_else() {
+        let code = "if 1 { 2 } else { 3 }";
+        let mut input = ParseBuffer::from(code);
+        let expr = input.parse::<ExprIfThenElse>().unwrap();
         println!("{:#?}", expr);
         assert!(input.is_empty());
     }

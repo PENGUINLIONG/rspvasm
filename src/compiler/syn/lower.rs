@@ -9,50 +9,61 @@ use super::block::Block;
 use super::stmt::Stmt;
 use super::expr::Expr;
 use super::pat::Pat;
-use super::token::Literal;
-
-pub fn path2str(path: &Path) -> Result<String> {
-    let mut name = String::new();
-    for segment in path.segments.iter() {
-        if !name.is_empty() {
-            name.push_str("::");
-        }
-        name.push_str(&segment.name);
-    }
-    Ok(name)
-}
+use super::token::Lit;
 
 #[derive(Debug)]
 pub struct LowerToAst {
 }
 impl LowerToAst {
+    pub fn lower_lit(&mut self, lit: &Lit) -> Result<NodeRef> {
+        let node = match lit {
+            Lit::Bool(value) => {
+                NodeConstant {
+                    value: ConstantValue::Bool(*value),
+                }.into_node_ref()
+            }
+            Lit::Int(value) => {
+                NodeConstant {
+                    value: ConstantValue::Int(*value as u32),
+                }.into_node_ref()
+            }
+            Lit::Float(value) => {
+                NodeConstant {
+                    value: ConstantValue::Float(*value as f32),
+                }.into_node_ref()
+            }
+            Lit::String(value) => {
+                NodeConstant {
+                    value: ConstantValue::String(value.clone()),
+                }.into_node_ref()
+            }
+        };
+        Ok(node)
+    }
+    
+    pub fn lower_path(&mut self, path: &Path) -> Result<NodeRef> {
+        let mut name = String::new();
+        for segment in path.segments.iter() {
+            if !name.is_empty() {
+                name.push_str("::");
+            }
+            name.push_str(&segment.name);
+        }
+
+        let node = NodeLookup {
+            name,
+        }.into_node_ref();
+        Ok(node)
+    }
+
     pub fn lower_pat(&mut self, pat: &Pat) -> Result<Option<NodeRef>> {
         match pat {
             Pat::Literal(literal) => {
-                let node = match literal.literal.clone() {
-                    Literal::Int(i) => {
-                        NodeConstant {
-                            value: ConstantValue::Int(i as u32),
-                        }.into_node_ref()
-                    }
-                    Literal::Float(f) => {
-                        NodeConstant {
-                            value: ConstantValue::Float(f as f32),
-                        }.into_node_ref()
-                    }
-                    Literal::String(s) => {
-                        NodeConstant {
-                            value: ConstantValue::String(s.clone()),
-                        }.into_node_ref()
-                    }
-                };
+                let node = self.lower_lit(&literal.literal.lit)?;
                 Ok(Some(node))
             }
             Pat::Path(path) => {
-                let path = path2str(&path.path)?;
-                let node = NodeLookup {
-                    name: path,
-                }.into_node_ref();
+                let node = self.lower_path(&path.path)?;
                 Ok(Some(node))
             }
             Pat::Underscore(_) => {
@@ -64,30 +75,11 @@ impl LowerToAst {
     pub fn lower_expr(&mut self, expr: &Expr) -> Result<NodeRef> {
         match expr {
             Expr::Literal(literal) => {
-                let node = match literal.literal.clone() {
-                    Literal::Int(i) => {
-                        NodeConstant {
-                            value: ConstantValue::Int(i as u32),
-                        }.into_node_ref()
-                    }
-                    Literal::Float(f) => {
-                        NodeConstant {
-                            value: ConstantValue::Float(f as f32),
-                        }.into_node_ref()
-                    }
-                    Literal::String(s) => {
-                        NodeConstant {
-                            value: ConstantValue::String(s.clone()),
-                        }.into_node_ref()
-                    }
-                };
+                let node = self.lower_lit(&literal.literal.lit)?;
                 Ok(node)
             }
             Expr::Path(path) => {
-                let path = path2str(&path.path)?;
-                let node = NodeLookup {
-                    name: path,
-                }.into_node_ref();
+                let node = self.lower_path(&path.path)?;
                 Ok(node)
             }
             Expr::Emit(emit) => {
@@ -102,7 +94,7 @@ impl LowerToAst {
 
                 let mut operands = Vec::new();
                 if let Some(x) = &emit.operands {
-                    for operand in x.0.iter() {
+                    for operand in x.inner.iter() {
                         let operand = self.lower_expr(operand)?;
                         operands.push(operand);
                     }
@@ -135,7 +127,7 @@ impl LowerToAst {
                         arg_define_nodes.push(define_node);
                     }
                 }
-                let mut block_node = self.lower_block(&block.block.0)?;
+                let mut block_node = self.lower_block(&block.block.inner)?;
                 block_node.nodes = arg_define_nodes.into_iter()
                     .chain(block_node.nodes.into_iter())
                     .collect();
@@ -144,7 +136,7 @@ impl LowerToAst {
             }
             Expr::Call(call) => {
                 let mut args = Vec::new();
-                for arg in call.args.0.args.iter() {
+                for arg in call.args.inner.args.iter() {
                     let arg = self.lower_expr(&arg.value)?;
                     args.push(arg);
                 }
@@ -153,6 +145,29 @@ impl LowerToAst {
                 let node = NodeInstantiate {
                     args,
                     node: function_node,
+                }.into_node_ref();
+                Ok(node)
+            }
+            Expr::IfThenElse(if_then_else) => {
+                let condition = self.lower_expr(&if_then_else.condition)?;
+                let then_node = self.lower_expr(&if_then_else.then_branch)?;
+                let else_node = if let Some(else_branch) = &if_then_else.else_branch {
+                    self.lower_expr(&else_branch.1)?
+                } else {
+                    NodeBlock {
+                        params: vec![],
+                        nodes: vec![],
+                        result_node: None,
+                    }.into_node_ref()
+                };
+
+                let node = NodeInstantiate {
+                    node: NodeIfThenElse {
+                        cond: condition,
+                        then_node,
+                        else_node,
+                    }.into_node_ref(),
+                    args: vec![],
                 }.into_node_ref();
                 Ok(node)
             }
@@ -165,8 +180,11 @@ impl LowerToAst {
                 let name = local.name.name.clone();
                 let value = self.lower_expr(&local.expr)?;
 
-                // Ensure the value is realized.
-                root_nodes.push(value.clone());
+                // Ensure the value is realized (if not required to manually
+                // emit by StmtExpr leter).
+                if !local.meta_list.contains("manual") {
+                    root_nodes.push(value.clone());
+                }
 
                 // Then bind it to a local name.
                 let def_node = NodeDefine {
@@ -179,15 +197,19 @@ impl LowerToAst {
             Stmt::Expr(expr) => {
                 let node = self.lower_expr(&expr.expr)?;
                 match node.as_ref() {
-                    Node::Instantiate(_) | Node::Emit(_) => {
+                    Node::Instantiate(_) | Node::Emit(_) | Node::Lookup(_) => {
                         root_nodes.push(node.clone());
                     }
                     _ => {}
                 }
-                Ok(Some(node))
+                if expr.semi_token.is_some() {
+                    Ok(None)
+                } else {
+                    Ok(Some(node))
+                }
             }
             Stmt::Const(const_) => {
-                for variant in const_.variants.0.iter() {
+                for variant in const_.variants.inner.iter() {
                     let name = if let Some(stem) = &const_.name {
                         format!("{}::{}", stem.name, variant.ident.name)
                     } else {
@@ -210,7 +232,7 @@ impl LowerToAst {
                 Ok(None)
             }
             Stmt::Layout(layout) => {
-                for entry in layout.entries.0.iter() {
+                for entry in layout.entries.inner.iter() {
                     if let Some(op) = self.lower_pat(&entry.pat)? {
                         let position = self.lower_expr(&entry.expr)?;
 
@@ -275,6 +297,48 @@ mod tests {
     fn test_emit_itm_instr_by_constant() {
         let code = r#"
 let void = ~19 -> _;
+"#;
+
+        let mut input = ParseBuffer::from(code.as_ref());
+        let stmts = parse_stmts(&mut input).unwrap();
+        let x = LowerToAst::apply(&stmts.into()).unwrap();
+        let (x, _) = l3ir::Lower::apply(&x).unwrap();
+        let x = l2ir::Lower::apply(&x).unwrap();
+        let ctxt = l1ir::Lower::apply(x).unwrap();
+        let spirv = SpirvBinary::from_ir(ctxt);
+
+        let dis = disassemble_spirv(&spirv.to_words());
+        assert_eq!(dis, r#"
+%1 = OpTypeVoid
+"#.trim());
+    }
+
+    #[test]
+    fn test_manual_no_emit() {
+        let code = r#"
+#[manual]
+let void = ~19 -> _;
+"#;
+
+        let mut input = ParseBuffer::from(code.as_ref());
+        let stmts = parse_stmts(&mut input).unwrap();
+        let x = LowerToAst::apply(&stmts.into()).unwrap();
+        let (x, _) = l3ir::Lower::apply(&x).unwrap();
+        let x = l2ir::Lower::apply(&x).unwrap();
+        let ctxt = l1ir::Lower::apply(x).unwrap();
+        let spirv = SpirvBinary::from_ir(ctxt);
+
+        let dis = disassemble_spirv(&spirv.to_words());
+        assert_eq!(dis, r#"
+"#.trim());
+    }
+
+    #[test]
+    fn test_manual_and_emit() {
+        let code = r#"
+#[manual]
+let void = ~19 -> _;
+void;
 "#;
 
         let mut input = ParseBuffer::from(code.as_ref());
@@ -490,7 +554,6 @@ make_constant(value: 1, ty: make_int32_type);
         let stmts = parse_stmts(&mut input).unwrap();
         let x = LowerToAst::apply(&stmts.into()).unwrap();
         let (x, _) = l3ir::Lower::apply(&x).unwrap();
-        dbg!(&x);
         let x = l2ir::Lower::apply(&x).unwrap();
         let ctxt = l1ir::Lower::apply(x).unwrap();
         let spirv = SpirvBinary::from_ir(ctxt);
@@ -501,5 +564,59 @@ make_constant(value: 1, ty: make_int32_type);
 %2 = OpConstant  %1  1
     "#.trim());
 }
+
+    #[test]
+    fn test_emit_if_then_else_true() {
+        let code = r#"
+const Op {
+    TypeInt = 21,
+}
+let int = if true {
+    ~Op::TypeInt(32, 1) -> _
+} else {
+    ~Op::TypeInt(32, 0) -> _
+};
+"#;
+
+        let mut input = ParseBuffer::from(code.as_ref());
+        let stmts = parse_stmts(&mut input).unwrap();
+        let x = LowerToAst::apply(&stmts.into()).unwrap();
+        let (x, _) = l3ir::Lower::apply(&x).unwrap();
+        let x = l2ir::Lower::apply(&x).unwrap();
+        let ctxt = l1ir::Lower::apply(x).unwrap();
+        let spirv = SpirvBinary::from_ir(ctxt);
+
+        let dis = disassemble_spirv(&spirv.to_words());
+        assert_eq!(dis, r#"
+%1 = OpTypeInt 32 1
+        "#.trim());
+    }
+
+    #[test]
+    fn test_emit_if_then_else_false() {
+        let code = r#"
+const Op {
+    TypeInt = 21,
+}
+let int = if false {
+    ~Op::TypeInt(32, 1) -> _
+} else {
+    ~Op::TypeInt(32, 0) -> _
+};
+"#;
+
+        let mut input = ParseBuffer::from(code.as_ref());
+        let stmts = parse_stmts(&mut input).unwrap();
+        let x = LowerToAst::apply(&stmts.into()).unwrap();
+        let (x, _) = l3ir::Lower::apply(&x).unwrap();
+        let x = l2ir::Lower::apply(&x).unwrap();
+        let ctxt = l1ir::Lower::apply(x).unwrap();
+        let spirv = SpirvBinary::from_ir(ctxt);
+
+        let dis = disassemble_spirv(&spirv.to_words());
+        assert_eq!(dis, r#"
+%1 = OpTypeInt 32 0
+        "#.trim());
+    }
 
 }

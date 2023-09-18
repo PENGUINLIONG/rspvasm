@@ -1,12 +1,21 @@
 use std::{rc::Rc, collections::HashMap};
 
+pub mod span;
+
 #[derive(Debug, Clone)]
 pub enum ConstantValue {
+    Bool(bool),
     Int(u32),
     Float(f32),
     String(String),
 }
 impl ConstantValue {
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Self::Bool(x) => Some(*x),
+            _ => None,
+        }
+    }
     pub fn as_int(&self) -> Option<u32> {
         match self {
             Self::Int(x) => Some(*x),
@@ -23,6 +32,7 @@ impl ConstantValue {
 
     pub fn to_words(&self) -> Vec<u32> {
         match self {
+            Self::Bool(x) => panic!("boolean value cannot be represented in words"),
             Self::Int(x) => vec![*x],
             Self::Float(x) => vec![x.to_bits()],
             Self::String(x) => {
@@ -110,13 +120,24 @@ macro_rules! def_into_node_ref {
             }
         }
         $(
-            concat_idents::concat_idents!(ty_name = Node, $name {
-                impl ty_name {
+            paste::paste! {
+                impl [<Node $name>] {
                     pub fn into_node_ref(self) -> NodeRef {
                         NodeRef::new(Node::$name(self))
                     }
                 }
-            });
+                impl NodeRef {
+                    pub fn [<as_ $name:lower>](&self) -> Option<&[<Node $name>]> {
+                        match self.as_ref() {
+                            Node::$name(x) => Some(x),
+                            _ => None,
+                        }
+                    }
+                    pub fn [<is_ $name:lower>](&self) -> bool {
+                        self.[<as_ $name:lower>]().is_some()
+                    }
+                }
+            }
         )+
     };
 }
