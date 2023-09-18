@@ -1,12 +1,13 @@
 use anyhow::Result;
 use super::{ token::*, punctuated::Punctuated };
-use crate::Token;
+use crate::{Token, compiler::common::span::Span};
 use super::{ Parse, ParseBuffer };
 
 #[derive(Debug, Clone)]
 pub struct Path {
     pub colon_colon_token: Option<Token![::]>,
     pub segments: Punctuated<Ident, Token![::]>,
+    pub span: Span,
 }
 impl Parse for Path {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
@@ -17,8 +18,16 @@ impl Parse for Path {
         };
         let segments = Punctuated::<Ident, Token![::]>::parse_separated_nonempty(input)?;
 
-        let out = Self { colon_colon_token, segments };
+        let out = Self {
+            span: Span::join([colon_colon_token.span(), segments.span()]),
+            colon_colon_token,
+            segments,
+        };
         Ok(out)
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 

@@ -56,6 +56,12 @@ pub struct NodeLayout {
     pub op: NodeRef,
     pub position: NodeRef,
 }
+#[derive(Debug, Clone)]
+pub struct NodeIfThenElse {
+    pub cond: NodeRef,
+    pub then_node: NodeRef, // Block
+    pub else_node: NodeRef, // Block
+}
 
 #[derive(Clone)]
 pub enum Node {
@@ -68,6 +74,7 @@ pub enum Node {
     Define(NodeDefine),
     Lookup(NodeLookup),
     Layout(NodeLayout),
+    IfThenElse(NodeIfThenElse),
 }
 def_into_node_ref!(
     Constant,
@@ -79,6 +86,7 @@ def_into_node_ref!(
     Define,
     Lookup,
     Layout,
+    IfThenElse,
 );
 
 impl Node {
@@ -91,6 +99,122 @@ impl Node {
 }
 
 pub type NodeRef = super::common::NodeRef<Node>;
+impl NodeRef {
+    pub fn force_transform<T>(&self, lower: &mut T) -> Result<NodeRef>
+        where T: FnMut(&NodeRef) -> Result<Option<NodeRef>>
+    {
+        lower(self)?
+                .ok_or_else(|| anyhow!("force lower must receive a transformed node"))
+    }
+    pub fn transform<T>(&self, lower: &mut T) -> Result<Option<NodeRef>>
+        where T: FnMut(&NodeRef) -> Result<Option<NodeRef>>
+    {
+        let out = match self.as_ref() {
+            Node::Constant(_) => {
+                Some(self.clone())
+            },
+            Node::Instr(instr) => {
+                let opcode = instr.opcode.force_transform(lower)?;
+                let operands = instr.operands.iter()
+                    .map(|operand| operand.force_transform(lower))
+                    .collect::<Result<Vec<_>>>()?;
+                let result_type = instr.result_type.as_ref()
+                    .map(|result_type| result_type.force_transform(lower))
+                    .transpose()?;
+                let node = NodeInstr {
+                    opcode,
+                    operands,
+                    result_type,
+                    has_result: instr.has_result,
+                }.into_node_ref();
+
+                Some(node)
+            },
+            Node::Arg(_) => {
+                Some(self.clone())
+            },
+            Node::Block(block) => {
+                let params = block.params.iter()
+                    .map(|param| param.force_transform(lower))
+                    .collect::<Result<Vec<_>>>()?;
+                let nodes = block.nodes.iter()
+                    .filter_map(|node| lower(node).transpose())
+                    .collect::<Result<Vec<_>>>()?;
+                let result_node = block.result_node.as_ref()
+                    .map(|result_node| result_node.force_transform(lower))
+                    .transpose()?;
+
+                let node = NodeBlock {
+                    params,
+                    nodes,
+                    result_node,
+                }.into_node_ref();
+
+                Some(node)
+            },
+            Node::Instantiate(instantiate) => {
+                let args = instantiate.args.iter()
+                    .map(|arg| arg.force_transform(lower))
+                    .collect::<Result<Vec<_>>>()?;
+                let node = instantiate.node.force_transform(lower)?;
+
+                let node = NodeInstantiate {
+                    args,
+                    node,
+                }.into_node_ref();
+
+                Some(node)
+            },
+            Node::Emit(emit) => {
+                let instr = emit.instr.force_transform(lower)?;
+
+                let node = NodeEmit {
+                    instr,
+                }.into_node_ref();
+
+                Some(node)
+            },
+            Node::Define(define) => {
+                let value = define.value.force_transform(lower)?;
+                let node = NodeDefine {
+                    name: define.name.clone(),
+                    value,
+                }.into_node_ref();
+
+                Some(node)
+            },
+            Node::Lookup(_) => {
+                Some(self.clone())
+            },
+            Node::Layout(layout) => {
+                let op = layout.op.force_transform(lower)?;
+                let position = layout.position.force_transform(lower)?;
+
+                let node = NodeLayout {
+                    op,
+                    position,
+                }.into_node_ref();
+
+                Some(node)
+            },
+            Node::IfThenElse(if_then_else) => {
+                let cond = if_then_else.cond.force_transform(lower)?;
+                let then_node = if_then_else.then_node.force_transform(lower)?;
+                let else_node = if_then_else.else_node.force_transform(lower)?;
+
+                let node = NodeIfThenElse {
+                    cond,
+                    then_node,
+                    else_node,
+                }.into_node_ref();
+
+                Some(node)
+            },
+        };
+
+        Ok(out)
+    }
+}
 
 pub struct InlineLookups {
     cache: HashMap<NodeRef, NodeRef>,
@@ -143,9 +267,6 @@ impl InlineLookups {
         }
 
         let out = match node.as_ref() {
-            Node::Constant(_) => Some(node.clone()),
-            Node::Arg(_) => Some(node.clone()),
-
             Node::Define(define) => {
                 let value = self.force_lower(&define.value)?;
                 self.define(define.name.clone(), value);
@@ -157,32 +278,6 @@ impl InlineLookups {
                 Some(node)
             },
             
-            Node::Layout(layout) => {
-                let op = self.force_lower(&layout.op)?;
-                let position = self.force_lower(&layout.position)?;
-
-                let node = NodeLayout {
-                    op,
-                    position,
-                }.into_node_ref();
-                Some(node)
-            },
-            Node::Instr(instr) => {
-                let opcode = self.force_lower(&instr.opcode)?;
-                let operands = instr.operands.iter()
-                    .map(|operand| self.force_lower(operand))
-                    .collect::<Result<Vec<_>>>()?;
-                let result_type = instr.result_type.as_ref()
-                    .map(|result_type| self.force_lower(result_type))
-                    .transpose()?;
-                let node = NodeInstr {
-                    opcode,
-                    operands,
-                    result_type,
-                    has_result: instr.has_result,
-                }.into_node_ref();
-                Some(node)
-            },
             Node::Block(block) => {
                 self.push();
 
@@ -206,27 +301,11 @@ impl InlineLookups {
 
                 Some(node)
             },
-            Node::Instantiate(instantiate) => {
-                let args = instantiate.args.iter()
-                    .map(|arg| self.force_lower(arg))
-                    .collect::<Result<Vec<_>>>()?;
-                let node = self.force_lower(&instantiate.node)?;
 
-                let node = NodeInstantiate {
-                    args,
-                    node,
-                }.into_node_ref();
-
-                Some(node)
-            },
-            Node::Emit(emit) => {
-                let instr = self.force_lower(&emit.instr)?;
-
-                let node = NodeEmit {
-                    instr,
-                }.into_node_ref();
-
-                Some(node)
+            Node::Arg(_) | Node::Constant(_) | Node::Layout(_) | Node::Instr(_) | Node::Instantiate(_) | Node::Emit(_) | Node::IfThenElse(_) => {
+                node.transform(&mut |x| {
+                    self.lower(x)
+                })?
             },
         };
 
@@ -330,23 +409,6 @@ impl InstantiateBlocks {
                 let node = self.force_lower(&node)?;
                 Some(node)
             },
-            Node::Constant(_) => Some(node.clone()),
-            Node::Instr(instr) => {
-                let opcode = self.force_lower(&instr.opcode)?;
-                let operands = instr.operands.iter()
-                    .map(|operand| self.force_lower(operand))
-                    .collect::<Result<Vec<_>>>()?;
-                let result_type = instr.result_type.as_ref()
-                    .map(|result_type| self.force_lower(result_type))
-                    .transpose()?;
-                let node = NodeInstr {
-                    opcode,
-                    operands,
-                    result_type,
-                    has_result: instr.has_result,
-                }.into_node_ref();
-                Some(node)
-            },
             Node::Block(block) => {
                 self.push_by_block(block.params.clone());
 
@@ -394,27 +456,29 @@ impl InstantiateBlocks {
 
                 Some(node)
             },
-            Node::Emit(emit) => {
-                let instr = self.force_lower(&emit.instr)?;
 
-                let node = NodeEmit {
-                    instr,
-                }.into_node_ref();
+            Node::IfThenElse(if_then_else) => {
+                let cond = self.force_lower(&if_then_else.cond)?
+                    .as_constant()
+                    .and_then(|x| x.value.as_bool())
+                    .ok_or_else(|| anyhow!("if-then-else condition must be a bool constant"))?;
 
-                Some(node)
+                let then_node = self.force_lower(&if_then_else.then_node)?;
+                assert!(then_node.is_block(), "then node must be a block");
+                let else_node = self.force_lower(&if_then_else.else_node)?;
+                assert!(else_node.is_block(), "else node must be a block");
+                
+                let out = if cond { then_node } else { else_node };
+
+                Some(out)
             },
-            Node::Layout(layout) => {
-                let op = self.force_lower(&layout.op)?;
-                let position = self.force_lower(&layout.position)?;
-
-                let node = NodeLayout {
-                    op,
-                    position,
-                }.into_node_ref();
-                Some(node)
-            },
-
+            
             Node::Define(_) | Node::Lookup(_) => unreachable!(),
+            Node::Constant(_) | Node::Instr(_) | Node::Emit(_) | Node::Layout(_) => {
+                node.transform(&mut |x| {
+                    self.lower(x)
+                })?
+            },
         };
 
         if let Some(out) = out.as_ref() {
@@ -572,7 +636,7 @@ impl Lower {
                 }
             },
 
-            Node::Define(_) | Node::Lookup(_) | Node::Arg(_) | Node::Layout(_) => unreachable!(),
+            Node::Define(_) | Node::Lookup(_) | Node::Arg(_) | Node::Layout(_) | Node::IfThenElse(_) => unreachable!(),
         };
 
         if let Some(out) = &out {
@@ -584,8 +648,10 @@ impl Lower {
 
     pub fn apply(root: &NodeRef) -> Result<(l2ir::NodeRef, HashMap<u32, f32>)> {
         let node = root.clone();
-        let node = InlineLookups::apply(&node);
-        let node = InstantiateBlocks::apply(&node?)?;
+        let node = InlineLookups::apply(&node)?;
+        dbg!(&node);
+        let node = InstantiateBlocks::apply(&node)?;
+        dbg!(&node);
         let (node, layouts) = CollectLayouts::apply(&node)?;
 
         let mut x = Self::new();

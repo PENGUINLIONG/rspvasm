@@ -273,3 +273,68 @@ OpReturn
 OpFunctionEnd
 "#.trim());
 }
+
+#[test]
+fn test_compile_complex_functional() {
+    let code = HEADER.to_string() + r#"
+~Op::Capability(Capability::Shader);
+let glsl_std_450_ = ~Op::ExtInstImport("GLSL.std.450") -> _;
+~Op::MemoryModel(AddressingModel::Logical, MemoryModel::GLSL450);
+
+let void_ = ~Op::TypeVoid -> _;
+let function_void_ = ~Op::TypeFunction(void_) -> _;
+
+let make_block = |body| {
+    let label_ = ~Op::Label -> _;
+    body();
+};
+
+let make_function = |body| {
+    let main_ = ~Op::Function(FunctionControl::None, function_void_) -> void_;
+    body();
+    ~Op::FunctionEnd;
+
+    main_
+};
+
+let make_entry_point = |function, group_size_x, group_size_y, group_size_z| {
+    ~Op::EntryPoint(ExecutionModel::GLCompute, function, "main");
+    ~Op::ExecutionMode(function, ExecutionMode::LocalSize, group_size_x, group_size_y, group_size_z);
+};
+
+let return = {
+    ~Op::Return;
+};
+
+let main_ = make_function(body: {
+    make_block(body: {
+        return();
+    });
+});
+
+make_entry_point(
+    function: main_,
+    group_size_x: 16,
+    group_size_y: 8,
+    group_size_z: 1,
+);
+"#;
+
+    let spirv = Compiler::compile(&code);
+
+    let dis = spirv.disassemble();
+
+    assert_eq!(dis, r#"
+OpCapability Shader
+%1 = OpExtInstImport "GLSL.std.450"
+OpMemoryModel Logical GLSL450
+OpEntryPoint GLCompute %4 "main"
+OpExecutionMode %4 LocalSize 16 8 1
+%2 = OpTypeVoid
+%3 = OpTypeFunction %2
+%4 = OpFunction  %2  None %3
+%5 = OpLabel
+OpReturn
+OpFunctionEnd
+"#.trim());
+}

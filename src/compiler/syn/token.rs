@@ -1,4 +1,5 @@
 use super::{Parse, ParseBuffer, Peek};
+use crate::compiler::common::span::Span;
 use anyhow::{anyhow, Result};
 
 macro_rules! unexpected_seq {
@@ -12,7 +13,7 @@ macro_rules! unexpected_seq {
 
 pub trait Token : Peek {}
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenTree {
     Ident(Ident),
     Punct(Punct),
@@ -32,6 +33,14 @@ impl Parse for TokenTree {
             Err(anyhow!("unexpected end of input"))
         }
     }
+
+    fn span(&self) -> Span {
+        match self {
+            TokenTree::Ident(ident) => ident.span,
+            TokenTree::Punct(punct) => punct.span,
+            TokenTree::Literal(literal) => literal.span,
+        }
+    }
 }
 impl Peek for TokenTree {
     fn peek(input: &ParseBuffer) -> bool {
@@ -48,19 +57,31 @@ impl Peek for TokenTree {
 macro_rules! define_token {
     ($( $name:literal => $ty:ident )*) => {
         $(
-            #[derive(Debug, Default, PartialEq, Clone)]
+            #[derive(Debug, Clone, PartialEq, Eq)]
             pub struct $ty {
+                pub span: Span
+            }
+            impl $ty {
+                pub fn with_span(span: Span) -> Self {
+                    Self { span }
+                }
             }
             impl Token for $ty {}
             impl Parse for $ty {
                 fn parse(input: &mut ParseBuffer) -> Result<Self> {
+                    let lo = input.pos;
                     let s: &str = input.as_ref();
                     if s.starts_with($name) {
                         input.advance_n($name.len());
-                        Ok(Self::default())
+                        let hi = input.pos;
+                        Ok(Self::with_span(Span { lo, hi }))
                     } else {
                         Err(unexpected_seq!($name, input))
                     }
+                }
+
+                fn span(&self) -> Span {
+                    self.span
                 }
             }
             impl Peek for $ty {
@@ -91,11 +112,14 @@ macro_rules! define_token {
 
 define_token! {
     "let" => Let
+    "ref" => Ref
     "type" => Type
     "const" => Const
     "struct" => Struct
     "impl" => Impl
     "layout" => Layout
+    "if" => If
+    "else" => Else
     "=" => Eq
     ";" => Semi
     ":" => Colon
@@ -106,16 +130,20 @@ define_token! {
     "@" => At
     "_" => Underscore
     "|" => Hline
+    "#" => Hash
 }
 
 #[macro_export]
 macro_rules! Token {
     [let] => { $crate::compiler::syn::token::Let };
+    [ref] => { $crate::compiler::syn::token::Ref };
     [type] => { $crate::compiler::syn::token::Type };
     [const] => { $crate::compiler::syn::token::Const };
     [struct] => { $crate::compiler::syn::token::Struct };
     [impl] => { $crate::compiler::syn::token::Impl };
     [layout] => { $crate::compiler::syn::token::Layout };
+    [if] => { $crate::compiler::syn::token::If };
+    [else] => { $crate::compiler::syn::token::Else };
     [=] => { $crate::compiler::syn::token::Eq };
     [;] => { $crate::compiler::syn::token::Semi };
     [:] => { $crate::compiler::syn::token::Colon };
@@ -126,15 +154,18 @@ macro_rules! Token {
     [@] => { $crate::compiler::syn::token::At };
     [_] => { $crate::compiler::syn::token::Underscore };
     [|] => { $crate::compiler::syn::token::Hline };
+    [#] => { $crate::compiler::syn::token::Hash };
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ident {
     pub name: String,
+    pub span: Span,
 }
 impl Token for Ident {}
 impl Parse for Ident {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
+        let lo = input.pos;
         let s: &str = input.as_ref();
         let mut buf = String::new();
         for c in s.chars() {
@@ -148,8 +179,18 @@ impl Parse for Ident {
             Err(unexpected_seq!("identifier", input))
         } else {
             input.advance_n(buf.len());
-            Ok(Self { name: buf })
+            let hi = input.pos;
+
+            let out = Self {
+                name: buf,
+                span: Span { lo, hi },
+            };
+            Ok(out)
         }
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 impl Peek for Ident {
@@ -163,20 +204,22 @@ impl Peek for Ident {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Spacing {
     Alone,
     Joint,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Punct {
     pub ch: char,
     pub spacing: Spacing,
+    pub span: Span,
 }
 impl Token for Punct {}
 impl Parse for Punct {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
+        let lo = input.pos;
         let s: &str = input.as_ref();
         let mut chars = s.chars();
         match chars.next() {
@@ -191,12 +234,23 @@ impl Parse for Punct {
                     Spacing::Alone
                 };
                 input.advance_n(c.len_utf8());
-                Ok(Self { ch: c, spacing })
+                let hi = input.pos;
+
+                let out = Self {
+                    ch: c,
+                    spacing,
+                    span: Span { lo, hi },
+                };
+                Ok(out)
             }
             _ => {
                 return Err(unexpected_seq!("punctuation", input));
             }
         }
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 impl Peek for Punct {
@@ -267,11 +321,20 @@ fn try_peek_group<T: Peek>(
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ParenGroup<T>(pub T);
+pub struct ParenGroup<T> {
+    pub inner: T,
+    pub span: Span,
+}
 impl<T: Parse> Parse for ParenGroup<T> {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
+        let lo = input.pos;
         let inner = try_parse_group::<T>(input, "(", ")")?;
-        Ok(Self(inner))
+        let hi = input.pos;
+        Ok(Self { inner, span: Span { lo, hi } })
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 impl<T: Peek> Peek for ParenGroup<T> {
@@ -281,11 +344,20 @@ impl<T: Peek> Peek for ParenGroup<T> {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct BracketGroup<T>(pub T);
+pub struct BracketGroup<T> {
+    pub inner: T,
+    pub span: Span,
+}
 impl<T: Parse> Parse for BracketGroup<T> {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
+        let lo = input.pos;
         let inner = try_parse_group::<T>(input, "[", "]")?;
-        Ok(Self(inner))
+        let hi = input.pos;
+        Ok(Self { inner, span: Span { lo, hi } })
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 impl<T: Peek> Peek for BracketGroup<T> {
@@ -295,11 +367,20 @@ impl<T: Peek> Peek for BracketGroup<T> {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct BraceGroup<T>(pub T);
+pub struct BraceGroup<T> {
+    pub inner: T,
+    pub span: Span,
+}
 impl<T: Parse> Parse for BraceGroup<T> {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
+        let lo = input.pos;
         let inner = try_parse_group::<T>(input, "{", "}")?;
-        Ok(Self(inner))
+        let hi = input.pos;
+        Ok(Self { inner, span: Span { lo, hi } })
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 impl<T: Peek> Peek for BraceGroup<T> {
@@ -308,16 +389,56 @@ impl<T: Peek> Peek for BraceGroup<T> {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum Literal {
+#[derive(Debug, Clone)]
+pub enum Lit {
+    Bool(bool),
     Int(i64),
     Float(f64),
     String(String),
 }
+impl PartialEq for Lit {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Bool(l0), Self::Bool(r0)) => l0 == r0,
+            (Self::Int(l0), Self::Int(r0)) => l0 == r0,
+            (Self::Float(l0), Self::Float(r0)) => l0 == r0,
+            (Self::String(l0), Self::String(r0)) => l0 == r0,
+            _ => false,
+        }
+    }
+}
+impl std::cmp::Eq for Lit {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Literal {
+    pub lit: Lit,
+    pub span: Span,
+}
 impl Token for Literal {}
 impl Parse for Literal {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
+        let lo = input.pos;
         let mut s: &str = input.as_ref();
+
+        if s.starts_with("true") {
+            input.advance_n("true".len());
+
+            let hi = input.pos;
+            let out = Literal {
+                lit: Lit::Bool(true),
+                span: Span { lo, hi },
+            };
+            return Ok(out);
+        } else if s.starts_with("false") {
+            input.advance_n("false".len());
+
+            let hi = input.pos;
+            let out = Literal {
+                lit: Lit::Bool(false),
+                span: Span { lo, hi },
+            };
+            return Ok(out);
+        }
 
         // If the literal starts with a quote, it's a string.
         if s.starts_with('"') {
@@ -327,7 +448,13 @@ impl Parse for Literal {
                     .replace("\\\"", "\"")
                     .replace("\\\\", "\\");
                 input.advance_n(i + 2);
-                return Ok(Self::String(buf));
+
+                let hi = input.pos;
+                let out = Self {
+                    lit: Lit::String(buf),
+                    span: Span { lo, hi },
+                };
+                return Ok(out);
             } else {
                 return Err(unexpected_seq!('\"', input));
             }
@@ -385,7 +512,13 @@ impl Parse for Literal {
         } else if is_float {
             let literal = buf.parse::<f64>()?;
             input.advance_n(buf.len());
-            Ok(Self::Float(literal))
+            let hi = input.pos;
+
+            let out = Self {
+                lit: Lit::Float(literal),
+                span: Span { lo, hi },
+            };
+            Ok(out)
         } else {
             let literal = if is_hex {
                 i64::from_str_radix(&buf[2..], 16)?
@@ -393,15 +526,25 @@ impl Parse for Literal {
                 i64::from_str_radix(&buf, 10)?
             };
             input.advance_n(buf.len());
-            Ok(Self::Int(literal))
+            let hi = input.pos;
+
+            let out = Self {
+                lit: Lit::Int(literal),
+                span: Span { lo, hi },
+            };
+            Ok(out)
         }
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 impl Peek for Literal {
     fn peek(input: &ParseBuffer) -> bool {
         let s: &str = input.as_ref();
         if let Some(c) = s.chars().next() {
-            c.is_digit(10) || c == '"'
+            c.is_digit(10) || c == '"' || s.starts_with("true") || s.starts_with("false")
         } else {
             false
         }
@@ -429,12 +572,35 @@ mod tests {
 
     #[test]
     fn test_parse_literal() {
+        // Bool.
+        {
+            let mut input = ParseBuffer::from("true");
+            let token = input.parse::<Literal>().unwrap();
+            assert!(input.is_empty());
+            assert_eq!(token, Literal {
+                lit: Lit::Bool(true),
+                span: Span { lo: 0, hi: 4 },
+            });
+        }
+        {
+            let mut input = ParseBuffer::from("false");
+            let token = input.parse::<Literal>().unwrap();
+            assert!(input.is_empty());
+            assert_eq!(token, Literal {
+                lit: Lit::Bool(false),
+                span: Span { lo: 0, hi: 5 },
+            });
+        }
+
         // String.
         {
             let mut input = ParseBuffer::from("\"foo\"");
             let token = input.parse::<Literal>().unwrap();
             assert!(input.is_empty());
-            assert_eq!(token, Literal::String("foo".to_string()));
+            assert_eq!(token, Literal {
+                lit: Lit::String("foo".to_string()),
+                span: Span { lo: 0, hi: 5 },
+            });
         }
 
         // Interger.
@@ -442,7 +608,10 @@ mod tests {
             let mut input = ParseBuffer::from("123");
             let token = input.parse::<Literal>().unwrap();
             assert!(input.is_empty());
-            assert_eq!(token, Literal::Int(123));
+            assert_eq!(token, Literal {
+                lit: Lit::Int(123),
+                span: Span { lo: 0, hi: 3 },
+            });
         }
 
         // Real number.
@@ -450,7 +619,10 @@ mod tests {
             let mut input = ParseBuffer::from("123.456");
             let token = input.parse::<Literal>().unwrap();
             assert!(input.is_empty());
-            assert_eq!(token, Literal::Float(123.456));
+            assert_eq!(token, Literal {
+                lit: Lit::Float(123.456),
+                span: Span { lo: 0, hi: 7 },
+            });
         }
 
         // Scientific notation.
@@ -458,13 +630,19 @@ mod tests {
             let mut input = ParseBuffer::from("123.456e-7");
             let token = input.parse::<Literal>().unwrap();
             assert!(input.is_empty());
-            assert_eq!(token, Literal::Float(123.456e-7));
+            assert_eq!(token, Literal {
+                lit: Lit::Float(123.456e-7),
+                span: Span { lo: 0, hi: 10 },
+            });
         }
         {
             let mut input = ParseBuffer::from("123.456E+7");
             let token = input.parse::<Literal>().unwrap();
             assert!(input.is_empty());
-            assert_eq!(token, Literal::Float(123.456E+7));
+            assert_eq!(token, Literal {
+                lit: Lit::Float(123.456E+7),
+                span: Span { lo: 0, hi: 10 },
+            });
         }
 
         // Hexadecimal integer.
@@ -472,7 +650,21 @@ mod tests {
             let mut input = ParseBuffer::from("0x123");
             let token = input.parse::<Literal>().unwrap();
             assert!(input.is_empty());
-            assert_eq!(token, Literal::Int(0x123));
+            assert_eq!(token, Literal {
+                lit: Lit::Int(0x123),
+                span: Span { lo: 0, hi: 5 },
+            });
         }
+    }
+
+    #[test]
+    fn test_parse_group() {
+        let mut input = ParseBuffer::from("(foo)");
+        let token = input.parse::<ParenGroup<Ident>>().unwrap();
+        assert!(input.is_empty());
+        assert_eq!(token.inner, Ident {
+            name: "foo".to_string(),
+            span: Span { lo: 1, hi: 4 },
+        });
     }
 }

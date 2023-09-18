@@ -1,5 +1,6 @@
 use anyhow::Result;
 use crate::Token;
+use crate::compiler::common::span::Span;
 
 use super::{ token::*, path::Path };
 use super::{ Parse, ParseBuffer };
@@ -7,33 +8,62 @@ use super::{ Parse, ParseBuffer };
 #[derive(Debug, Clone)]
 pub struct PatLiteral {
     pub literal: Literal,
+    pub span: Span,
 }
 impl Parse for PatLiteral {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
         let literal = input.parse::<Literal>()?;
-        Ok(Self { literal })
+        let span = literal.span();
+
+        let out = Self {
+            literal,
+            span,
+        };
+        Ok(out)
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct PatPath {
     pub path: Path,
+    pub span: Span,
 }
 impl Parse for PatPath {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
         let path = input.parse::<Path>()?;
-        Ok(Self { path })
+        let span = path.span;
+
+        let out = Self {
+            path,
+            span,
+        };
+        Ok(out)
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct PatUnderscore {
     pub underscore_token: Token![_],
+    pub span: Span,
 }
 impl Parse for PatUnderscore {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
         let underscore_token = input.parse::<Token![_]>()?;
-        Ok(Self { underscore_token })
+        let span = underscore_token.span;
+
+        Ok(Self { underscore_token, span })
+    }
+
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
@@ -54,6 +84,14 @@ impl Parse for Pat {
         } else {
             let path = input.parse::<PatPath>()?;
             Ok(Self::Path(path))
+        }
+    }
+
+    fn span(&self) -> Span {
+        match self {
+            Self::Literal(literal) => literal.span(),
+            Self::Path(path) => path.span(),
+            Self::Underscore(underscore) => underscore.span(),
         }
     }
 }
