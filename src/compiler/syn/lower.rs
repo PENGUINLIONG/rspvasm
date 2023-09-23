@@ -570,12 +570,14 @@ make_constant(value: 1, ty: make_int32_type);
         let code = r#"
 const Op {
     TypeInt = 21,
+    Constant = 43,
 }
 let int = if true {
     ~Op::TypeInt(32, 1) -> _
 } else {
     ~Op::TypeInt(32, 0) -> _
 };
+~Op::Constant(1) -> int;
 "#;
 
         let mut input = ParseBuffer::from(code.as_ref());
@@ -589,6 +591,7 @@ let int = if true {
         let dis = disassemble_spirv(&spirv.to_words());
         assert_eq!(dis, r#"
 %1 = OpTypeInt 32 1
+%2 = OpConstant  %1  1
         "#.trim());
     }
 
@@ -598,7 +601,7 @@ let int = if true {
 const Op {
     TypeInt = 21,
 }
-let int = if false {
+if false {
     ~Op::TypeInt(32, 1) -> _
 } else {
     ~Op::TypeInt(32, 0) -> _

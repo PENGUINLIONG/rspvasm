@@ -649,9 +649,7 @@ impl Lower {
     pub fn apply(root: &NodeRef) -> Result<(l2ir::NodeRef, HashMap<u32, f32>)> {
         let node = root.clone();
         let node = InlineLookups::apply(&node)?;
-        dbg!(&node);
         let node = InstantiateBlocks::apply(&node)?;
-        dbg!(&node);
         let (node, layouts) = CollectLayouts::apply(&node)?;
 
         let mut x = Self::new();

@@ -32,7 +32,7 @@ impl ConstantValue {
 
     pub fn to_words(&self) -> Vec<u32> {
         match self {
-            Self::Bool(x) => panic!("boolean value cannot be represented in words"),
+            Self::Bool(_) => panic!("boolean value cannot be represented in words"),
             Self::Int(x) => vec![*x],
             Self::Float(x) => vec![x.to_bits()],
             Self::String(x) => {
@@ -127,12 +127,14 @@ macro_rules! def_into_node_ref {
                     }
                 }
                 impl NodeRef {
+                    #[allow(dead_code)]
                     pub fn [<as_ $name:lower>](&self) -> Option<&[<Node $name>]> {
                         match self.as_ref() {
                             Node::$name(x) => Some(x),
                             _ => None,
                         }
                     }
+                    #[allow(dead_code)]
                     pub fn [<is_ $name:lower>](&self) -> bool {
                         self.[<as_ $name:lower>]().is_some()
                     }
