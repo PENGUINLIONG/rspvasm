@@ -281,7 +281,7 @@ mod tests {
     use rspirv::binary::Disassemble;
     use pretty_assertions::assert_eq;
 
-    use crate::compiler::{syn::{ParseBuffer, stmt::parse_stmts}, l3ir, l2ir, l1ir, l0ir::SpirvBinary};
+    use crate::compiler::{syn::{ParseBuffer, stmt::parse_stmts}, l3ir, l1ir, l0ir::SpirvBinary};
 
     use super::LowerToAst;
 
@@ -303,7 +303,6 @@ let void = ~19 -> _;
         let stmts = parse_stmts(&mut input).unwrap();
         let x = LowerToAst::apply(&stmts.into()).unwrap();
         let (x, _) = l3ir::Lower::apply(&x).unwrap();
-        let x = l2ir::Lower::apply(&x).unwrap();
         let ctxt = l1ir::Lower::apply(x).unwrap();
         let spirv = SpirvBinary::from_ir(ctxt);
 
@@ -324,7 +323,6 @@ let void = ~19 -> _;
         let stmts = parse_stmts(&mut input).unwrap();
         let x = LowerToAst::apply(&stmts.into()).unwrap();
         let (x, _) = l3ir::Lower::apply(&x).unwrap();
-        let x = l2ir::Lower::apply(&x).unwrap();
         let ctxt = l1ir::Lower::apply(x).unwrap();
         let spirv = SpirvBinary::from_ir(ctxt);
 
@@ -345,7 +343,6 @@ void;
         let stmts = parse_stmts(&mut input).unwrap();
         let x = LowerToAst::apply(&stmts.into()).unwrap();
         let (x, _) = l3ir::Lower::apply(&x).unwrap();
-        let x = l2ir::Lower::apply(&x).unwrap();
         let ctxt = l1ir::Lower::apply(x).unwrap();
         let spirv = SpirvBinary::from_ir(ctxt);
 
@@ -368,7 +365,6 @@ let void = ~Op::TypeVoid -> _;
         let stmts = parse_stmts(&mut input).unwrap();
         let x = LowerToAst::apply(&stmts.into()).unwrap();
         let (x, _) = l3ir::Lower::apply(&x).unwrap();
-        let x = l2ir::Lower::apply(&x).unwrap();
         let ctxt = l1ir::Lower::apply(x).unwrap();
         let spirv = SpirvBinary::from_ir(ctxt);
 
@@ -393,7 +389,6 @@ let constant_1 = ~Op::Constant(1) -> int;
         let stmts = parse_stmts(&mut input).unwrap();
         let x = LowerToAst::apply(&stmts.into()).unwrap();
         let (x, _) = l3ir::Lower::apply(&x).unwrap();
-        let x = l2ir::Lower::apply(&x).unwrap();
         let ctxt = l1ir::Lower::apply(x).unwrap();
         let spirv = SpirvBinary::from_ir(ctxt);
 
@@ -420,7 +415,6 @@ let constant_1 = ~Op::Constant(1) -> int;
         let stmts = parse_stmts(&mut input).unwrap();
         let x = LowerToAst::apply(&stmts.into()).unwrap();
         let (x, _) = l3ir::Lower::apply(&x).unwrap();
-        let x = l2ir::Lower::apply(&x).unwrap();
         let ctxt = l1ir::Lower::apply(x).unwrap();
         let spirv = SpirvBinary::from_ir(ctxt);
 
@@ -451,10 +445,7 @@ let constant_1 = ~Op::Constant(1) -> int;
         let stmts = parse_stmts(&mut input).unwrap();
         let x = LowerToAst::apply(&stmts.into()).unwrap();
         let (x, _) = l3ir::Lower::apply(&x).unwrap();
-        let x = l2ir::Lower::apply(&x).unwrap();
-        dbg!(&x);
         let ctxt = l1ir::Lower::apply(x).unwrap();
-        dbg!(&ctxt);
         let spirv = SpirvBinary::from_ir(ctxt);
 
         let dis = disassemble_spirv(&spirv.to_words());
@@ -484,7 +475,6 @@ make_constant(value: 1, ty: int);
         let stmts = parse_stmts(&mut input).unwrap();
         let x = LowerToAst::apply(&stmts.into()).unwrap();
         let (x, _) = l3ir::Lower::apply(&x).unwrap();
-        let x = l2ir::Lower::apply(&x).unwrap();
         let ctxt = l1ir::Lower::apply(x).unwrap();
         let spirv = SpirvBinary::from_ir(ctxt);
 
@@ -519,7 +509,6 @@ make_constant(value: 1, ty: make_int_type());
         let stmts = parse_stmts(&mut input).unwrap();
         let x = LowerToAst::apply(&stmts.into()).unwrap();
         let (x, _) = l3ir::Lower::apply(&x).unwrap();
-        let x = l2ir::Lower::apply(&x).unwrap();
         let ctxt = l1ir::Lower::apply(x).unwrap();
         let spirv = SpirvBinary::from_ir(ctxt);
 
@@ -554,7 +543,6 @@ make_constant(value: 1, ty: make_int32_type);
         let stmts = parse_stmts(&mut input).unwrap();
         let x = LowerToAst::apply(&stmts.into()).unwrap();
         let (x, _) = l3ir::Lower::apply(&x).unwrap();
-        let x = l2ir::Lower::apply(&x).unwrap();
         let ctxt = l1ir::Lower::apply(x).unwrap();
         let spirv = SpirvBinary::from_ir(ctxt);
 
@@ -584,7 +572,6 @@ let int = if true {
         let stmts = parse_stmts(&mut input).unwrap();
         let x = LowerToAst::apply(&stmts.into()).unwrap();
         let (x, _) = l3ir::Lower::apply(&x).unwrap();
-        let x = l2ir::Lower::apply(&x).unwrap();
         let ctxt = l1ir::Lower::apply(x).unwrap();
         let spirv = SpirvBinary::from_ir(ctxt);
 
@@ -612,7 +599,6 @@ if false {
         let stmts = parse_stmts(&mut input).unwrap();
         let x = LowerToAst::apply(&stmts.into()).unwrap();
         let (x, _) = l3ir::Lower::apply(&x).unwrap();
-        let x = l2ir::Lower::apply(&x).unwrap();
         let ctxt = l1ir::Lower::apply(x).unwrap();
         let spirv = SpirvBinary::from_ir(ctxt);
 

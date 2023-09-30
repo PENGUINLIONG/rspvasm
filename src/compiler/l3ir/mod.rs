@@ -1,13 +1,14 @@
 //! Level-4 Intermediate Representation
 //!
 //! Named lookup.
+use std::cell::Ref;
 use std::collections::HashMap;
 use anyhow::{anyhow, Result, bail};
 
 use crate::def_into_node_ref;
 
 use super::common::ConstantValue;
-use super::l2ir;
+use super::l1ir;
 
 #[cfg(test)]
 mod tests;
@@ -717,8 +718,100 @@ impl EvaluateControlFlow {
 
 }
 
+pub struct FlattenBlocks {
+    cache: HashMap<NodeRef, NodeRef>,
+    root_nodes: Vec<NodeRef>,
+}
+impl FlattenBlocks {
+    pub fn new() -> Self {
+        Self {
+            cache: HashMap::new(),
+            root_nodes: Vec::new(),
+        }
+    }
+
+    fn force_lower(&mut self, node: &NodeRef) -> Result<NodeRef> {
+        self.lower(node)?
+            .ok_or_else(|| anyhow!("force lower must receive a transformed node"))
+    }
+    fn lower(&mut self, node: &NodeRef) -> Result<Option<NodeRef>> {
+        if let Some(x) = self.cache.get(&node) {
+            return Ok(Some(x.clone()));
+        }
+
+        let out = match node.as_ref() {
+            Node::Constant(_) => {
+                Some(node.clone())
+            },
+            Node::Emit(emit) => {
+                if let Some(instr) = emit.instr.as_instr() {
+                    let opcode = self.force_lower(&instr.opcode)?;
+                    let operands = instr.operands.iter()
+                        .map(|operand| self.force_lower(operand))
+                        .collect::<Result<Vec<_>>>()?;
+                    let result_type = instr.result_type.as_ref()
+                        .map(|result_type| self.force_lower(result_type))
+                        .transpose()?;
+
+                    let node = NodeEmit {
+                        instr: NodeInstr {
+                            opcode,
+                            operands,
+                            result_type,
+                            has_result: instr.has_result,
+                        }.into_node_ref(),
+                    }.into_node_ref();
+
+                    self.root_nodes.push(node.clone());
+
+                    Some(node)
+                } else {
+                    bail!("expected instr, got: {:?}", emit.instr);
+                }
+            },
+            Node::Instantiate(instantiate) => {
+                if let Some(block) = instantiate.node.as_block() {
+                    for node in block.nodes.iter() {
+                        self.lower(node)?;
+                    }
+    
+                    let result_node = block.result_node.as_ref()
+                        .map(|result_node| self.force_lower(result_node))
+                        .transpose()?;
+    
+                    result_node
+                } else {
+                    bail!("expected block, got: {:?}", instantiate.node);
+                }
+            },
+            _ => None,
+        };
+
+        if let Some(out) = out.as_ref() {
+            self.cache.insert(node.clone(), out.clone());
+        }
+
+        dbg!(node, &out);
+        Ok(out)
+    }
+
+    pub fn apply(node: &NodeRef) -> Result<NodeRef> {
+        let mut x = Self::new();
+        x.lower(node)?;
+        let out = NodeInstantiate {
+            node: NodeBlock {
+                nodes: x.root_nodes,
+                params: vec![],
+                result_node: None,
+            }.into_node_ref(),
+            args: vec![],
+        }.into_node_ref();
+        Ok(out)
+    }
+}
+
 pub struct Lower {
-    cache: HashMap<NodeRef, l2ir::NodeRef>,
+    cache: HashMap<NodeRef, l1ir::NodeRef>,
 }
 impl Lower {
     pub fn new() -> Self {
@@ -727,22 +820,17 @@ impl Lower {
         }
     }
 
-    pub fn force_lower(&mut self, node: &NodeRef, root_nodes: &mut Vec<l2ir::NodeRef>) -> Result<l2ir::NodeRef> {
+    pub fn force_lower(&mut self, node: &NodeRef, root_nodes: &mut Vec<l1ir::NodeRef>) -> Result<l1ir::NodeRef> {
         self.lower(node, root_nodes)?
             .ok_or_else(|| anyhow!("force lower must receive a transformed node: {:?}", node))
     }
-    pub fn lower(&mut self, node: &NodeRef, root_nodes: &mut Vec<l2ir::NodeRef>) -> Result<Option<l2ir::NodeRef>> {
+    pub fn lower(&mut self, node: &NodeRef, root_nodes: &mut Vec<l1ir::NodeRef>) -> Result<Option<l1ir::NodeRef>> {
         if let Some(x) = self.cache.get(&node) {
             return Ok(Some(x.clone()));
         }
 
         let out = match node.as_ref() {
-            Node::Constant(constant) => {
-                let node = l2ir::NodeConstant {
-                    value: constant.value.clone(),
-                }.into_node_ref();
-                Some(node)
-            },
+            Node::Constant(_) => None,
             Node::Block(_) => None,
             Node::Instr(_) => None,
             Node::Instantiate(instantiate) => {
@@ -752,7 +840,7 @@ impl Lower {
                         for node in block.nodes.iter() {
                             self.lower(node, &mut root_nodes2)?;
                         }
-                        let block_node = l2ir::NodeBlock {
+                        let block_node = l1ir::NodeBlock {
                             nodes: root_nodes2,
                         }.into_node_ref();
                         root_nodes.push(block_node);
@@ -771,15 +859,31 @@ impl Lower {
             Node::Emit(emit) => {
                 match emit.instr.as_ref() {
                     Node::Instr(instr) => {
-                        let opcode = self.force_lower(&instr.opcode, root_nodes)?;
-                        let operands = instr.operands.iter()
-                            .map(|operand| self.force_lower(operand, root_nodes))
-                            .collect::<Result<Vec<_>>>()?;
+                        let opcode = instr.opcode.as_constant()
+                            .and_then(|x| x.value.as_int())
+                            .and_then(|x| {
+                                if x < u16::MAX as u32 {
+                                    Some(x as u16)
+                                } else {
+                                    None
+                                }
+                            })
+                            .ok_or_else(|| anyhow!("opcode must be an u16"))?;
+                        let mut operands = Vec::new();
+                        for operand in instr.operands.iter() {
+                            let operand = if let Some(x) = operand.as_constant() {
+                                l1ir::Operand::Constant(x.value.to_words())
+                            } else {
+                                let node = self.force_lower(operand, root_nodes)?;
+                                l1ir::Operand::IdRef(node)
+                            };
+                            operands.push(operand);
+                        }
                         let result_type = instr.result_type.as_ref()
                             .map(|result_type| self.force_lower(result_type, root_nodes))
                             .transpose()?;
 
-                        let node = l2ir::NodeInstr {
+                        let node = l1ir::NodeInstr {
                             opcode,
                             operands,
                             result_type,
@@ -803,11 +907,12 @@ impl Lower {
         Ok(out)
     }
 
-    pub fn apply(node: &NodeRef) -> Result<(l2ir::NodeRef, HashMap<u32, f32>)> {
+    pub fn apply(node: &NodeRef) -> Result<(l1ir::NodeRef, HashMap<u32, f32>)> {
         let node = InlineLookups::apply(&node)?;
         let node = InstantiateBlocks::apply(&node)?;
         let (node, layouts) = CollectLayouts::apply(&node)?;
         let node = EvaluateControlFlow::apply(&node)?;
+        let node = FlattenBlocks::apply(&node)?;
 
         let mut x = Self::new();
         let mut root_nodes = Vec::new();

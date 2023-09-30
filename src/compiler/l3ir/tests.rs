@@ -1,7 +1,7 @@
 use super::*;
 
 use rspirv::binary::Disassemble;
-use crate::compiler::{l1ir, l2ir, l3ir, l0ir::SpirvBinary};
+use crate::compiler::{l1ir, l3ir, l0ir::SpirvBinary};
 
 use pretty_assertions::assert_eq;
 
@@ -44,7 +44,6 @@ fn test_simple() {
     }.into_node_ref();
 
     let (x, _) = l3ir::Lower::apply(&root).unwrap();
-    let x = l2ir::Lower::apply(&x).unwrap();
     let x = l1ir::Lower::apply(x).unwrap();
     let spirv = SpirvBinary::from_ir(x);
 
@@ -81,7 +80,6 @@ fn test_define_instr() {
     }.into_node_ref();
 
     let (x, _) = l3ir::Lower::apply(&root).unwrap();
-    let x = l2ir::Lower::apply(&x).unwrap();
     let x = l1ir::Lower::apply(x).unwrap();
     let spirv = SpirvBinary::from_ir(x);
 
@@ -124,7 +122,6 @@ fn test_define_block_but_not_instantiate() {
     }.into_node_ref();
 
     let (x, _) = l3ir::Lower::apply(&root).unwrap();
-    let x = l2ir::Lower::apply(&x).unwrap();
     let x = l1ir::Lower::apply(x).unwrap();
     let spirv = SpirvBinary::from_ir(x);
 
@@ -169,7 +166,6 @@ fn test_define_block() {
     }.into_node_ref();
 
     let (x, _) = l3ir::Lower::apply(&root).unwrap();
-    let x = l2ir::Lower::apply(&x).unwrap();
     let x = l1ir::Lower::apply(x).unwrap();
     let spirv = SpirvBinary::from_ir(x);
 
@@ -215,7 +211,6 @@ fn test_cross_block_lookup() {
     }.into_node_ref();
 
     let (x, _) = l3ir::Lower::apply(&root).unwrap();
-    let x = l2ir::Lower::apply(&x).unwrap();
     let x = l1ir::Lower::apply(x).unwrap();
     let spirv = SpirvBinary::from_ir(x);
 
@@ -268,7 +263,6 @@ fn test_argument_lookup() {
     }.into_node_ref();
 
     let (x, _) = l3ir::Lower::apply(&root).unwrap();
-    let x = l2ir::Lower::apply(&x).unwrap();
     let x = l1ir::Lower::apply(x).unwrap();
     let spirv = SpirvBinary::from_ir(x);
 
@@ -316,7 +310,6 @@ fn test_var_load_store() {
     }.into_node_ref();
 
     let (x, _) = l3ir::Lower::apply(&global_).unwrap();
-    let x = l2ir::Lower::apply(&x).unwrap();
     let x = l1ir::Lower::apply(x).unwrap();
     let spirv = SpirvBinary::from_ir(x);
     let dis = spirv.disassemble();
