@@ -7,13 +7,14 @@ edition = "2021"
 
 [dependencies]
 ordered-float = "3.7.0"
+spirv = "0.2.0"
 spirq = { version = "0.6.4", path = "../spirq-rs/spirq" }
 rspirv = "0.11.0"
 anyhow = { version = "1.0.44", features = ["backtrace"] }
 clap = { version = "4.3", features = ["derive"] }
 concat-idents = "1.1"
 paste = "1.0"
+num-traits = "0.2"
 
 [dev-dependencies]
-spirv = "0.2.0"
 pretty_assertions = "1.4"

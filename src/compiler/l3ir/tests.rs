@@ -277,3 +277,50 @@ fn test_argument_lookup() {
 %1 = OpTypeVoid
 "#.trim());
 }
+
+#[test]
+fn test_var_load_store() {
+    let var_ = NodeVariable {
+        name: "foo".to_string(),
+    }.into_node_ref();
+    let global_ = NodeInstantiate {
+        node: NodeBlock {
+            nodes: vec![
+                var_.clone(),
+                NodeStore {
+                    variable: var_.clone(),
+                    value: make_int_constant(0),
+                }.into_node_ref(),
+                NodeStore {
+                    variable: var_.clone(),
+                    value: make_int_constant(1),
+                }.into_node_ref(),
+                NodeEmit {
+                    instr: NodeInstr {
+                        opcode: make_op_constant(spirv::Op::TypeInt),
+                        operands: vec![
+                            make_int_constant(32),
+                            NodeLoad {
+                                variable: var_.clone(),
+                            }.into_node_ref(),
+                        ],
+                        result_type: None,
+                        has_result: true,
+                    }.into_node_ref(),
+                }.into_node_ref(),
+            ],
+            params: vec![],
+            result_node: None,
+        }.into_node_ref(),
+        args: vec![],
+    }.into_node_ref();
+
+    let (x, _) = l3ir::Lower::apply(&global_).unwrap();
+    let x = l2ir::Lower::apply(&x).unwrap();
+    let x = l1ir::Lower::apply(x).unwrap();
+    let spirv = SpirvBinary::from_ir(x);
+    let dis = spirv.disassemble();
+    assert_eq!(dis, r#"
+%1 = OpTypeInt 32 1
+"#.trim());
+}

@@ -32,8 +32,13 @@ fn test_instr() {
         result_type: None,
         has_result: true,
     }.into_node_ref();
+    let global_ = NodeBlock {
+        nodes: vec![
+            void_.clone(),
+        ],
+    }.into_node_ref();
 
-    let x = l2ir::Lower::apply(&void_).unwrap();
+    let x = l2ir::Lower::apply(&global_).unwrap();
     let x = l1ir::Lower::apply(x).unwrap();
     let spirv = SpirvBinary::from_ir(x);
     let dis = spirv.disassemble();

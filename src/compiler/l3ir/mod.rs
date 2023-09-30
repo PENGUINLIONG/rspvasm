@@ -62,6 +62,19 @@ pub struct NodeIfThenElse {
     pub then_node: NodeRef, // Block
     pub else_node: NodeRef, // Block
 }
+#[derive(Debug, Clone)]
+pub struct NodeVariable {
+    pub name: String,
+}
+#[derive(Debug, Clone)]
+pub struct NodeLoad {
+    pub variable: NodeRef,
+}
+#[derive(Debug, Clone)]
+pub struct NodeStore {
+    pub variable: NodeRef,
+    pub value: NodeRef,
+}
 
 #[derive(Clone)]
 pub enum Node {
@@ -75,6 +88,9 @@ pub enum Node {
     Lookup(NodeLookup),
     Layout(NodeLayout),
     IfThenElse(NodeIfThenElse),
+    Variable(NodeVariable),
+    Load(NodeLoad),
+    Store(NodeStore),
 }
 def_into_node_ref!(
     Constant,
@@ -87,6 +103,9 @@ def_into_node_ref!(
     Lookup,
     Layout,
     IfThenElse,
+    Variable,
+    Load,
+    Store,
 );
 
 impl Node {
@@ -210,6 +229,31 @@ impl NodeRef {
 
                 Some(node)
             },
+            Node::Variable(_) => {
+                Some(self.clone())
+            },
+            Node::Load(load) => {
+                let variable = load.variable.force_transform(lower)?;
+                assert!(variable.is_variable(), "load variable must be a variable");
+
+                let node = NodeLoad {
+                    variable,
+                }.into_node_ref();
+
+                Some(node)
+            },
+            Node::Store(store) => {
+                let variable = store.variable.force_transform(lower)?;
+                assert!(variable.is_variable(), "load variable must be a variable");
+                let value = store.value.force_transform(lower)?;
+
+                let node = NodeStore {
+                    variable,
+                    value,
+                }.into_node_ref();
+
+                Some(node)
+            },
         };
 
         Ok(out)
@@ -302,7 +346,7 @@ impl InlineLookups {
                 Some(node)
             },
 
-            Node::Arg(_) | Node::Constant(_) | Node::Layout(_) | Node::Instr(_) | Node::Instantiate(_) | Node::Emit(_) | Node::IfThenElse(_) => {
+            Node::Arg(_) | Node::Constant(_) | Node::Layout(_) | Node::Instr(_) | Node::Instantiate(_) | Node::Emit(_) | Node::IfThenElse(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => {
                 node.transform(&mut |x| {
                     self.lower(x)
                 })?
@@ -415,7 +459,7 @@ impl InstantiateBlocks {
                 let mut nodes = Vec::new();
                 for node in block.nodes.iter() {
                     let node = match node.as_ref() {
-                        Node::Instantiate(_) | Node::Emit(_) => self.lower(&node)?,
+                        Node::Instantiate(_) | Node::Emit(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => self.lower(&node)?,
                         _ => None,
                     };
                     if let Some(node) = node {
@@ -474,7 +518,7 @@ impl InstantiateBlocks {
             },
             
             Node::Define(_) | Node::Lookup(_) => unreachable!(),
-            Node::Constant(_) | Node::Instr(_) | Node::Emit(_) | Node::Layout(_) => {
+            Node::Constant(_) | Node::Instr(_) | Node::Emit(_) | Node::Layout(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => {
                 node.transform(&mut |x| {
                     self.lower(x)
                 })?
@@ -560,6 +604,119 @@ impl CollectLayouts {
     }
 }
 
+pub struct EvaluateControlFlow {
+    variables: HashMap<NodeRef, Option<NodeRef>>,
+    cache: HashMap<NodeRef, NodeRef>,
+}
+impl EvaluateControlFlow {
+    pub fn new() -> Self {
+        Self {
+            variables: HashMap::new(),
+            cache: HashMap::new(),
+        }
+    }
+
+    pub fn declare(&mut self, variable: &NodeRef) -> Result<()> {
+        if self.variables.contains_key(&variable) {
+            bail!("variable already declared: {:?}", variable);
+        }
+        self.variables.insert(variable.clone(), None);
+        Ok(())
+    }
+
+    pub fn store(&mut self, variable: &NodeRef, value: NodeRef) -> Result<()> {
+        if let Some(constant) = self.variables.get_mut(&variable) {
+            let _ = constant.insert(value);
+            Ok(())
+        } else {
+            Err(anyhow!("undefined variable: {:?}", variable))
+        }
+    }
+
+    pub fn load(&mut self, variable: &NodeRef) -> Result<NodeRef> {
+        let node = self.variables.get(&variable)
+            .ok_or_else(|| anyhow!("undefined variable: {:?}", variable))?
+            .clone()
+            .ok_or_else(|| anyhow!("variable is not assigned yet: {:?}", variable))?;
+        Ok(node)
+    }
+
+    pub fn eval_constexpr(&mut self, node: &NodeRef) -> Result<ConstantValue> {
+        let node = self.force_lower(node)?;
+
+        match node.as_ref() {
+            Node::Constant(constant) => {
+                Ok(constant.value.clone())
+            }
+            // TODO: (penguinliong) Constexpr logics here. Like unary, binary
+            // ops.
+            _ => Err(anyhow!("not a constexpr: {:?}", node)),
+        }
+    }
+
+    pub fn force_lower(&mut self, node: &NodeRef) -> Result<NodeRef> {
+        let out = self.lower(node)?
+            .ok_or_else(|| anyhow!("cannot lower non-instruction nodes"))?;
+        Ok(out)
+    }
+    pub fn lower(&mut self, node: &NodeRef) -> Result<Option<NodeRef>> {
+        if let Some(x) = self.cache.get(node) {
+            return Ok(Some(x.clone()));
+        }
+
+        let out = match node.as_ref() {
+            Node::Variable(_) => {
+                self.declare(node)?;
+                None
+            },
+            Node::Load(load) => {
+                let node = self.load(&load.variable)?;
+                Some(node)
+            },
+            Node::Store(store) => {
+                let value = self.force_lower(&store.value)?;
+                self.store(&store.variable, value)?;
+                None
+            },
+            Node::IfThenElse(if_then_else) => {
+                let cond = self.eval_constexpr(&if_then_else.cond)?;
+                let then_node = self.force_lower(&if_then_else.then_node)?;
+                let else_node = self.force_lower(&if_then_else.else_node)?;
+
+                if let Some(succ) = cond.as_bool() {
+                    if succ {
+                        Some(then_node)
+                    } else {
+                        Some(else_node)
+                    }
+                } else {
+                    bail!("if-then-else condition must be a bool constant")
+                }
+            },
+
+            Node::Define(_) | Node::Lookup(_) | Node::Layout(_) => unreachable!(),
+            Node::Arg(_) | Node::Constant(_) | Node::Instr(_) | Node::Block(_) | Node::Instantiate(_) | Node::Emit(_) => {
+                node.transform(&mut |x| {
+                    self.lower(x)
+                })?
+            },
+        };
+
+        if let Some(x) = out.as_ref() {
+            self.cache.insert(node.clone(), x.clone());
+        }
+
+        Ok(out)
+    }
+
+    pub fn apply(node: &NodeRef) -> Result<NodeRef> {
+        let mut x = Self::new();
+        let out = x.force_lower(node)?;
+        Ok(out)
+    }
+
+}
+
 pub struct Lower {
     cache: HashMap<NodeRef, l2ir::NodeRef>,
 }
@@ -636,7 +793,7 @@ impl Lower {
                 }
             },
 
-            Node::Define(_) | Node::Lookup(_) | Node::Arg(_) | Node::Layout(_) | Node::IfThenElse(_) => unreachable!(),
+            Node::Define(_) | Node::Lookup(_) | Node::Arg(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => unreachable!("{:?}", node),
         };
 
         if let Some(out) = &out {
@@ -646,11 +803,11 @@ impl Lower {
         Ok(out)
     }
 
-    pub fn apply(root: &NodeRef) -> Result<(l2ir::NodeRef, HashMap<u32, f32>)> {
-        let node = root.clone();
+    pub fn apply(node: &NodeRef) -> Result<(l2ir::NodeRef, HashMap<u32, f32>)> {
         let node = InlineLookups::apply(&node)?;
         let node = InstantiateBlocks::apply(&node)?;
         let (node, layouts) = CollectLayouts::apply(&node)?;
+        let node = EvaluateControlFlow::apply(&node)?;
 
         let mut x = Self::new();
         let mut root_nodes = Vec::new();

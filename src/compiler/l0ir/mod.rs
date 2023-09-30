@@ -5,6 +5,7 @@
 use std::{collections::HashMap, rc::Rc};
 
 use ordered_float::OrderedFloat;
+use num_traits::cast::FromPrimitive;
 
 #[cfg(test)]
 mod tests;
@@ -43,7 +44,7 @@ impl IdContext {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Instr {
     pub opcode: u16,
     pub result_type: Option<u32>,
@@ -65,6 +66,25 @@ impl Instr {
         assert!(len <= u16::MAX as u32, "instruction length must be less than u16::MAX (65535)");
         out[0] |= len << 16;
         out
+    }
+}
+impl std::fmt::Debug for Instr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let result_id = self.result_id
+            .map(|x| format!("%{} =\t", x))
+            .unwrap_or_else(|| "\t".to_string());
+        let result_type = self.result_type
+            .map(|x| format!("%{}", x))
+            .unwrap_or_else(|| "()".to_string());
+        let op = spirv::Op::from_u16(self.opcode)
+            .map(|x| format!("{:?}", x))
+            .unwrap_or_else(|| self.opcode.to_string());
+        let operands = self.operands.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        write!(f, "{result_id}{op}({operands}) -> {result_type}")
     }
 }
 
@@ -156,7 +176,7 @@ impl SpirvHeader {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct InstrContext {
     pub version: u32,
     pub counter: u32,
@@ -197,6 +217,17 @@ impl InstrContext {
 impl Default for InstrContext {
     fn default() -> Self {
         Self::new()
+    }
+}
+impl std::fmt::Debug for InstrContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut instrs = self.instrs.iter()
+            .map(|x| format!("{:?}", x))
+            .collect::<Vec<_>>();
+        instrs.sort();
+        let instrs = instrs.join("\n");
+
+        write!(f, "{}", instrs)
     }
 }
 
