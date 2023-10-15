@@ -7,6 +7,7 @@ use super::{ Parse, ParseBuffer };
 pub struct StmtLocal {
     pub meta_list: MetaList,
     pub let_token: Token![let],
+    pub mut_token: Option<Token![mut]>,
     pub name: Ident,
     pub eq_token: Token![=],
     pub expr: Box<Expr>,
@@ -16,6 +17,9 @@ pub struct StmtLocal {
 impl Parse for StmtLocal {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
         let let_token = input.parse::<Token![let]>()?;
+        let mut_token = input.peek::<Token![mut]>()
+            .then(|| { input.parse::<Token![mut]>() })
+            .transpose()?;
         let name = input.parse::<Ident>()?;
         let eq_token = input.parse::<Token![=]>()?;
         let expr = input.parse::<Expr>()?;
@@ -23,6 +27,7 @@ impl Parse for StmtLocal {
 
         let span = Span::join([
             let_token.span(),
+            mut_token.span(),
             name.span(),
             eq_token.span(),
             expr.span(),
@@ -32,6 +37,7 @@ impl Parse for StmtLocal {
         let out = Self {
             meta_list: MetaList::default(),
             let_token,
+            mut_token,
             name,
             eq_token,
             expr: Box::new(expr),
@@ -219,13 +225,9 @@ impl Parse for StmtLayout {
 
 #[derive(Debug, Clone)]
 pub enum Stmt {
-    /// Fundamental.
     Local(StmtLocal),
-    /// Fundamental.
     Expr(StmtExpr),
-    /// Fundamental.
     Const(StmtConst),
-    /// Fundamental.
     Layout(StmtLayout),
 }
 impl Parse for Stmt {

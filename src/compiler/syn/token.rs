@@ -112,6 +112,8 @@ macro_rules! define_token {
 
 define_token! {
     "let" => Let
+    "mut" => Mut
+    "var" => Var
     "ref" => Ref
     "type" => Type
     "const" => Const
@@ -137,6 +139,8 @@ define_token! {
 #[macro_export]
 macro_rules! Token {
     [let] => { $crate::compiler::syn::token::Let };
+    [mut] => { $crate::compiler::syn::token::Mut };
+    [var] => { $crate::compiler::syn::token::Var };
     [ref] => { $crate::compiler::syn::token::Ref };
     [type] => { $crate::compiler::syn::token::Type };
     [const] => { $crate::compiler::syn::token::Const };

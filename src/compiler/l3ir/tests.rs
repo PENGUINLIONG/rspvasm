@@ -270,6 +270,7 @@ fn test_argument_lookup() {
 fn test_var_load_store() {
     let var_ = NodeVariable {
         name: "foo".to_string(),
+        is_mutable: false,
     }.into_node_ref();
     let global_ = NodeInstantiate {
         node: NodeBlock {

@@ -72,6 +72,7 @@ pub struct NodeWhile {
 #[derive(Debug, Clone)]
 pub struct NodeVariable {
     pub name: String,
+    pub is_mutable: bool,
 }
 #[derive(Debug, Clone)]
 pub struct NodeLoad {

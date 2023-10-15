@@ -148,6 +148,18 @@ impl LowerToAst {
                 }.into_node_ref();
                 Ok(node)
             }
+            Expr::Assign(assign) => {
+                let vae_name = assign.ident.name.to_string();
+                let value_node = self.lower_expr(&assign.expr)?;
+
+                let store_node = NodeStore {
+                    variable: NodeLookup {
+                        name: vae_name.clone(),
+                    }.into_node_ref(),
+                    value: value_node,
+                }.into_node_ref();
+                Ok(store_node)
+            }
             Expr::IfThenElse(if_then_else) => {
                 let condition = self.lower_expr(&if_then_else.condition)?;
                 let then_node = self.lower_expr(&if_then_else.then_branch)?;
@@ -203,17 +215,42 @@ impl LowerToAst {
                 }
 
                 // Then bind it to a local name.
-                let def_node = NodeDefine {
-                    name,
-                    value,
-                }.into_node_ref();
-                root_nodes.push(def_node);
+                if local.mut_token.is_some() {
+                    // Then bind it to a local name.
+                    let var_node = NodeVariable {
+                        name: name.clone(),
+                        is_mutable: local.mut_token.is_some(),
+                    }.into_node_ref();
+
+                    let store_node = NodeStore {
+                        variable: var_node.clone(),
+                        value,
+                    }.into_node_ref();
+
+                    let def_node = NodeDefine {
+                        name,
+                        value: NodeLoad {
+                            variable: var_node.clone(),
+                        }.into_node_ref(),
+                    }.into_node_ref();
+
+                    root_nodes.push(var_node);
+                    root_nodes.push(store_node);
+                    root_nodes.push(def_node);
+                } else {
+                    let def_node = NodeDefine {
+                        name,
+                        value,
+                    }.into_node_ref();
+                    root_nodes.push(def_node);
+                }
                 Ok(None)
             }
             Stmt::Expr(expr) => {
                 let node = self.lower_expr(&expr.expr)?;
                 match node.as_ref() {
-                    // (penguinliong) Why we filter the node types here though?
+                    // (penguinliong) Filtering is necessary because we don't
+                    // want any instruction to be emitted unexpectedly.
                     Node::Instantiate(_) | Node::Emit(_) | Node::Lookup(_) | Node::IfThenElse(_) | Node::While(_) => {
                         root_nodes.push(node.clone());
                     }

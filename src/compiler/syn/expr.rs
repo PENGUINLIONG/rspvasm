@@ -198,6 +198,39 @@ impl Parse for ExprCall {
 }
 
 #[derive(Debug, Clone)]
+pub struct ExprAssign {
+    pub ident: Ident,
+    pub eq_token: Token![=],
+    pub expr: Box<Expr>,
+    pub span: Span,
+}
+impl Parse for ExprAssign {
+    fn parse(input: &mut ParseBuffer) -> Result<Self> {
+        let ident = input.parse::<Ident>()?;
+        let eq_token = input.parse::<Token![=]>()?;
+        let expr = input.parse::<Expr>()?;
+
+        let span = Span::join([
+            ident.span(),
+            eq_token.span(),
+            expr.span(),
+        ]);
+
+        let out = Self {
+            ident,
+            eq_token,
+            expr: Box::new(expr),
+            span,
+        };
+        Ok(out)
+    }
+
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ExprIfThenElse {
     pub if_token: Token![if],
     pub condition: Box<Expr>,
@@ -283,6 +316,7 @@ pub enum Expr {
     Emit(ExprEmit),
     Block(ExprBlock),
     Call(ExprCall),
+    Assign(ExprAssign),
     IfThenElse(ExprIfThenElse),
     While(ExprWhile),
 }
@@ -351,6 +385,7 @@ impl Parse for Expr {
             Self::Emit(emit) => emit.span(),
             Self::Block(block) => block.span(),
             Self::Call(call) => call.span(),
+            Self::Assign(assign) => assign.span(),
             Self::IfThenElse(if_then_else) => if_then_else.span(),
             Self::While(while_) => while_.span(),
         }
