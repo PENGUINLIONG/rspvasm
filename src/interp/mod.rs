@@ -1,6 +1,7 @@
 use anyhow::{anyhow, bail, Result};
+use clap::parser::IdsRef;
 use num_traits::ToBytes;
-use std::{collections::HashMap, io::{BufWriter}, fmt::Write};
+use std::{collections::HashMap, io::{BufWriter}, fmt::Write, rc::Rc};
 
 #[derive(Debug, Clone)]
 struct Object {
@@ -113,9 +114,9 @@ enum Func {
     },
     Emit {
         op: Box<Func>,
-        result_id: Option<Box<Func>>,
-        result_type: Option<Box<Func>>,
         operands: Vec<Func>,
+        has_result_id: bool,
+        result_type: Option<Box<Func>>,
     },
     Store {
         name: String,
@@ -160,10 +161,29 @@ struct Instr {
     operands: Vec<u32>,
 }
 
+#[derive(Debug, Clone)]
+pub struct IdContext {
+    counter: u32,
+}
+impl IdContext {
+    pub fn new() -> Self {
+        Self {
+            counter: 1,
+        }
+    }
+
+    pub fn alloc(&mut self) -> IdRef {
+        let idref = self.counter;
+        self.counter += 1;
+        idref
+    }
+}
+
 struct Interpreter<'a, W: Write> {
     //root_obj: Object,
     stack: Vec<Vec<Atom>>,
     states: HashMap<String, Atom>,
+    id_ctxt: IdContext,
     out_stream: &'a mut W,
     out_instrs: Vec<Instr>,
 }
@@ -172,9 +192,14 @@ impl<'a, W: Write> Interpreter<'a, W> {
         Interpreter {
             stack: vec![vec![]],
             states: HashMap::new(),
+            id_ctxt: IdContext::new(),
             out_stream,
             out_instrs: Vec::new(),
         }
+    }
+
+    fn alloc_id(&mut self) -> u32 {
+        self.id_ctxt.alloc()
     }
 
     fn push(&mut self) -> usize {
@@ -226,16 +251,11 @@ impl<'a, W: Write> Interpreter<'a, W> {
 
                 Atom::None
             },
-            Func::Emit { op, result_id, result_type, operands } => {
-                let mut has_result_id = false;
+            Func::Emit { op, operands, has_result_id, result_type } => {
                 let mut has_result_type = false;
 
                 let depth = self.push();
                 self.interpret_func(op)?;
-                if let Some(result_id) = result_id {
-                    self.interpret_func(result_id)?;
-                    has_result_id = true;
-                }
                 if let Some(result_type) = result_type {
                     self.interpret_func(result_type)?;
                     has_result_type = true;
@@ -252,7 +272,7 @@ impl<'a, W: Write> Interpreter<'a, W> {
                     x as u16
                 };
                 let result_id = has_result_id.then(|| {
-                    args.next().unwrap().to_idref().unwrap()
+                    self.alloc_id()
                 });
                 let result_type = has_result_type.then(|| {
                     args.next().unwrap().to_idref().unwrap()
@@ -272,7 +292,11 @@ impl<'a, W: Write> Interpreter<'a, W> {
 
                 self.out_instrs.push(instr);
 
-                Atom::None
+                if let Some(result_id) = result_id {
+                    Atom::IdRef(result_id)
+                } else {
+                    Atom::None
+                }
             },
             Func::Store { name, value } => {
                 let depth = self.push();
