@@ -19,6 +19,8 @@ fn bytes_to_words(bytes: &[u8], words: &mut Vec<u32>) {
     words.extend(words_);
 }
 
+type IdRef = u32;
+
 #[derive(Debug, Clone)]
 enum Atom {
     None,
@@ -26,6 +28,7 @@ enum Atom {
     Int(i32),
     Float(f32),
     String(String),
+    IdRef(IdRef),
     Object(Object),
 }
 impl Atom {
@@ -45,6 +48,9 @@ impl Atom {
                 let mut bytes = x.as_bytes().to_vec();
                 bytes.push(0);
                 bytes_to_words(&bytes, words);
+            },
+            Atom::IdRef(x) => {
+                words.push(*x);
             },
             Atom::Object(x) => bail!("cannot push Object to words"),
         };
@@ -111,6 +117,18 @@ enum Func {
         result_type: Option<Box<Func>>,
         operands: Vec<Func>,
     },
+    Store {
+        name: String,
+        value: Box<Func>,
+    },
+    Load {
+        name: String,
+    },
+    Binary {
+        binary_op: BinaryOp,
+        arg0: Box<Func>,
+        arg1: Box<Func>,
+    },
     /*
     Unary {
         unary_op: UnaryOp,
@@ -145,6 +163,7 @@ struct Instr {
 struct Interpreter<'a, W: Write> {
     //root_obj: Object,
     stack: Vec<Vec<Atom>>,
+    states: HashMap<String, Atom>,
     out_stream: &'a mut W,
     out_instrs: Vec<Instr>,
 }
@@ -152,6 +171,7 @@ impl<'a, W: Write> Interpreter<'a, W> {
     pub fn new(out_stream: &'a mut W) -> Self {
         Interpreter {
             stack: vec![vec![]],
+            states: HashMap::new(),
             out_stream,
             out_instrs: Vec::new(),
         }
@@ -189,6 +209,9 @@ impl<'a, W: Write> Interpreter<'a, W> {
                         Atom::Int(x) => {
                             writeln!(self.out_stream, "{}", x)?;
                         }
+                        Atom::IdRef(x) => {
+                            writeln!(self.out_stream, "%{}", x)?;
+                        }
                         Atom::Float(x) => {
                             writeln!(self.out_stream, "{}", x)?;
                         }
@@ -211,9 +234,11 @@ impl<'a, W: Write> Interpreter<'a, W> {
                 self.interpret_func(op)?;
                 if let Some(result_id) = result_id {
                     self.interpret_func(result_id)?;
+                    has_result_id = true;
                 }
                 if let Some(result_type) = result_type {
                     self.interpret_func(result_type)?;
+                    has_result_type = true;
                 }
                 for operand in operands.iter() {
                     self.interpret_func(operand)?;
@@ -248,10 +273,59 @@ impl<'a, W: Write> Interpreter<'a, W> {
                 self.out_instrs.push(instr);
 
                 Atom::None
+            },
+            Func::Store { name, value } => {
+                let depth = self.push();
+                self.interpret_func(value)?;
+                let mut args = self.pop(depth);
+
+                let value = args.remove(0);
+
+                self.states.insert(name.clone(), value);
+
+                Atom::None
+            },
+            Func::Load { name } => {
+                let value = self.states.get(name)
+                    .ok_or_else(|| anyhow!("name not found: {}", name))?
+                    .clone();
+                value
+            },
+            Func::Binary { binary_op, arg0, arg1 } => {
+                let depth = self.push();
+                self.interpret_func(arg0)?;
+                self.interpret_func(arg1)?;
+                let mut args = self.pop(depth);
+
+                let arg0 = args.remove(0);
+                let arg1 = args.remove(0);
+
+                match binary_op {
+                    BinaryOp::Add => {
+                        match (&arg0, &arg1) {
+                            (Atom::Int(x), Atom::Int(y)) => {
+                                Atom::Int(x + y)
+                            }
+                            (Atom::Float(x), Atom::Float(y)) => {
+                                Atom::Float(x + y)
+                            }
+                            _ => bail!("cannot add {:?} and {:?}", arg0, arg1),
+                        }
+                    }
+                    _ => unimplemented!(),
+                }
             }
         };
 
         self.stack.last_mut().unwrap().push(out);
+
+        Ok(())
+    }
+
+    pub fn interpret_func_seq(&mut self, funcs: &[Func]) -> Result<()> {
+        for func in funcs.iter() {
+            self.interpret_func(func)?;
+        }
 
         Ok(())
     }
@@ -284,6 +358,30 @@ false
 abc
 ".trim_start();
         interp.interpret_func(&func).unwrap();
+        assert_eq!(expect, log);
+    }
+
+    #[test]
+    fn test_load_store() {
+        let mut log = String::new();
+        let mut interp = Interpreter::new(&mut log);
+
+        let func = vec![
+            Func::Store {
+                name: "x".to_string(),
+                value: Box::new(Func::Atom { atom: Atom::Int(123) }),
+            },
+            Func::Print {
+                args: vec![
+                    Func::Load { name: "x".to_string() },
+                ],
+            },
+        ];
+
+        let expect = r"
+123
+".trim_start();
+        interp.interpret_func_seq(&func).unwrap();
         assert_eq!(expect, log);
     }
 }
