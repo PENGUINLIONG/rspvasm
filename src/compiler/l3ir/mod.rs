@@ -8,7 +8,7 @@ use anyhow::{anyhow, Result, bail};
 use crate::def_into_node_ref;
 
 use super::common::ConstantValue;
-use super::l1ir;
+use super::{l1ir, l0ir};
 
 mod ty;
 
@@ -813,42 +813,78 @@ impl FlattenBlocks {
 }
 
 pub struct Lower {
-    cache: HashMap<NodeRef, l1ir::NodeRef>,
+    instr_ctxt: l0ir::InstrContext,
+    node_id_tokens: HashMap<NodeRef, l0ir::IdToken>,
 }
 impl Lower {
     pub fn new() -> Self {
         Self {
-            cache: HashMap::new(),
+            instr_ctxt: l0ir::InstrContext::default(),
+            node_id_tokens: HashMap::new(),
         }
     }
 
-    pub fn force_lower(&mut self, node: &NodeRef, root_nodes: &mut Vec<l1ir::NodeRef>) -> Result<l1ir::NodeRef> {
-        self.lower(node, root_nodes)?
+    pub fn alloc_node_id(&mut self, node: &NodeRef) -> Result<()> {
+        if self.node_id_tokens.contains_key(node) {
+            return Ok(());
+        }
+
+        match node.as_ref() {
+            Node::Constant(_) | Node::Block(_) | Node::Instr(_) => {},
+            Node::Emit(emit) => {
+                match emit.instr.as_ref() {
+                    Node::Instr(instr) => {
+                        self.alloc_node_id(&instr.opcode)?;
+                        for operand in instr.operands.iter() {
+                            self.alloc_node_id(operand)?;
+                        }
+                        if let Some(result_type) = instr.result_type.as_ref() {
+                            self.alloc_node_id(result_type)?;
+                        }
+
+                        if instr.has_result {
+                            self.node_id_tokens.insert(node.clone(), self.instr_ctxt.alloc_id());
+                        }
+                    },
+                    _ => unreachable!(),
+                }
+            },
+            Node::Instantiate(instantiate) => {
+                match instantiate.node.as_ref() {
+                    Node::Block(block) => {
+                        for node in block.nodes.iter() {
+                            self.alloc_node_id(node)?;
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+            },
+
+            Node::Define(_) | Node::Lookup(_) | Node::Arg(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => unreachable!("{:?}", node),
+        }
+
+        Ok(())
+    }
+
+    pub fn force_lower(&mut self, node: &NodeRef) -> Result<l0ir::IdToken> {
+        self.lower(node)?
             .ok_or_else(|| anyhow!("force lower must receive a transformed node: {:?}", node))
     }
-    pub fn lower(&mut self, node: &NodeRef, root_nodes: &mut Vec<l1ir::NodeRef>) -> Result<Option<l1ir::NodeRef>> {
-        if let Some(x) = self.cache.get(&node) {
-            return Ok(Some(x.clone()));
-        }
-
+    pub fn lower(&mut self, node: &NodeRef) -> Result<Option<l0ir::IdToken>> {
         let out = match node.as_ref() {
             Node::Constant(_) => None,
             Node::Block(_) => None,
             Node::Instr(_) => None,
             Node::Instantiate(instantiate) => {
+                // There shall be only a single layer of block.
                 match instantiate.node.as_ref() {
                     Node::Block(block) => {
-                        let mut root_nodes2 = Vec::new();
                         for node in block.nodes.iter() {
-                            self.lower(node, &mut root_nodes2)?;
+                            self.lower(node)?;
                         }
-                        let block_node = l1ir::NodeBlock {
-                            nodes: root_nodes2,
-                        }.into_node_ref();
-                        root_nodes.push(block_node);
 
                         if let Some(result_node) = block.result_node.as_ref() {
-                            let node = self.cache.get(result_node)
+                            let node = self.node_id_tokens.get(result_node)
                                 .ok_or_else(|| anyhow!("result node not found"))?;
                             Some(node.clone())
                         } else {
@@ -871,29 +907,32 @@ impl Lower {
                                 }
                             })
                             .ok_or_else(|| anyhow!("opcode must be an u16"))?;
+                        let mut builder = self.instr_ctxt.build_instr(opcode);
+
                         let mut operands = Vec::new();
                         for operand in instr.operands.iter() {
-                            let operand = if let Some(x) = operand.as_constant() {
-                                l1ir::Operand::Constant(x.value.to_words())
+                            if let Some(x) = operand.as_constant() {
+                                operands.extend(x.value.to_words())
                             } else {
-                                let node = self.force_lower(operand, root_nodes)?;
-                                l1ir::Operand::IdRef(node)
+                                if let Some(id_token) = self.node_id_tokens.get(operand) {
+                                    operands.push(id_token.get());
+                                } else {
+                                    bail!("id_ref not found: {:?}", operand);
+                                }
                             };
-                            operands.push(operand);
                         }
-                        let result_type = instr.result_type.as_ref()
-                            .map(|result_type| self.force_lower(result_type, root_nodes))
-                            .transpose()?;
+                        builder.set_operands(operands);
+        
+                        if let Some(result_type) = instr.result_type.as_ref() {
+                            if let Some(id_token) = self.node_id_tokens.get(result_type) {
+                                builder.set_result_type(id_token);
+                            }
+                        }
 
-                        let node = l1ir::NodeInstr {
-                            opcode,
-                            operands,
-                            result_type,
-                            has_result: instr.has_result,
-                        }.into_node_ref();
-
-                        root_nodes.push(node.clone());
-                        Some(node)
+                        if let Some(id_token) = self.node_id_tokens.get(node) {
+                            builder.set_result_id(id_token);
+                        }
+                        builder.build()
                     },
                     _ => bail!("expected instr, got: {:?}", emit.instr),
                 }
@@ -902,14 +941,10 @@ impl Lower {
             Node::Define(_) | Node::Lookup(_) | Node::Arg(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => unreachable!("{:?}", node),
         };
 
-        if let Some(out) = &out {
-            self.cache.insert(node.clone(), out.clone());
-        }
-
         Ok(out)
     }
 
-    pub fn apply(node: &NodeRef) -> Result<(l1ir::NodeRef, HashMap<u32, f32>)> {
+    pub fn apply(node: &NodeRef) -> Result<l0ir::InstrContext> {
         let node = InlineLookups::apply(&node)?;
         let node = InstantiateBlocks::apply(&node)?;
         let (node, layouts) = CollectLayouts::apply(&node)?;
@@ -917,8 +952,10 @@ impl Lower {
         let node = FlattenBlocks::apply(&node)?;
 
         let mut x = Self::new();
-        let mut root_nodes = Vec::new();
-        x.lower(&node, &mut root_nodes)?;
-        Ok((root_nodes[0].clone(), layouts))
+        x.alloc_node_id(&node)?;
+        x.lower(&node)?;
+        x.instr_ctxt.sort_by_layouts(layouts);
+        dbg!(&x.instr_ctxt);
+        Ok(x.instr_ctxt)
     }
 }

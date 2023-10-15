@@ -43,8 +43,7 @@ fn test_simple() {
         args: vec![],
     }.into_node_ref();
 
-    let (x, _) = l3ir::Lower::apply(&root).unwrap();
-    let x = l1ir::Lower::apply(x).unwrap();
+    let x = l3ir::Lower::apply(&root).unwrap();
     let spirv = SpirvBinary::from_ir(x);
 
     let dis = disassemble_spirv(&spirv.to_words());
@@ -79,8 +78,7 @@ fn test_define_instr() {
         args: vec![],
     }.into_node_ref();
 
-    let (x, _) = l3ir::Lower::apply(&root).unwrap();
-    let x = l1ir::Lower::apply(x).unwrap();
+    let x = l3ir::Lower::apply(&root).unwrap();
     let spirv = SpirvBinary::from_ir(x);
 
     let dis = disassemble_spirv(&spirv.to_words());
@@ -121,8 +119,7 @@ fn test_define_block_but_not_instantiate() {
         args: vec![],
     }.into_node_ref();
 
-    let (x, _) = l3ir::Lower::apply(&root).unwrap();
-    let x = l1ir::Lower::apply(x).unwrap();
+    let x = l3ir::Lower::apply(&root).unwrap();
     let spirv = SpirvBinary::from_ir(x);
 
     let dis = disassemble_spirv(&spirv.to_words());
@@ -165,8 +162,7 @@ fn test_define_block() {
         args: vec![],
     }.into_node_ref();
 
-    let (x, _) = l3ir::Lower::apply(&root).unwrap();
-    let x = l1ir::Lower::apply(x).unwrap();
+    let x = l3ir::Lower::apply(&root).unwrap();
     let spirv = SpirvBinary::from_ir(x);
 
     let dis = disassemble_spirv(&spirv.to_words());
@@ -210,8 +206,7 @@ fn test_cross_block_lookup() {
         args: vec![],
     }.into_node_ref();
 
-    let (x, _) = l3ir::Lower::apply(&root).unwrap();
-    let x = l1ir::Lower::apply(x).unwrap();
+    let x = l3ir::Lower::apply(&root).unwrap();
     let spirv = SpirvBinary::from_ir(x);
 
     let dis = disassemble_spirv(&spirv.to_words());
@@ -262,8 +257,7 @@ fn test_argument_lookup() {
         args: vec![],
     }.into_node_ref();
 
-    let (x, _) = l3ir::Lower::apply(&root).unwrap();
-    let x = l1ir::Lower::apply(x).unwrap();
+    let x = l3ir::Lower::apply(&root).unwrap();
     let spirv = SpirvBinary::from_ir(x);
 
     let dis = disassemble_spirv(&spirv.to_words());
@@ -309,8 +303,7 @@ fn test_var_load_store() {
         args: vec![],
     }.into_node_ref();
 
-    let (x, _) = l3ir::Lower::apply(&global_).unwrap();
-    let x = l1ir::Lower::apply(x).unwrap();
+    let x = l3ir::Lower::apply(&global_).unwrap();
     let spirv = SpirvBinary::from_ir(x);
     let dis = spirv.disassemble();
     assert_eq!(dis, r#"
