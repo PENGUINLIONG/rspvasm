@@ -215,35 +215,26 @@ impl LowerToAst {
                 }
 
                 // Then bind it to a local name.
-                if local.mut_token.is_some() {
-                    // Then bind it to a local name.
-                    let var_node = NodeVariable {
-                        name: name.clone(),
-                        is_mutable: local.mut_token.is_some(),
-                    }.into_node_ref();
+                let var_node = NodeVariable {
+                    name: name.clone(),
+                    is_mutable: local.mut_token.is_some(),
+                }.into_node_ref();
 
-                    let store_node = NodeStore {
+                let store_node = NodeStore {
+                    variable: var_node.clone(),
+                    value,
+                }.into_node_ref();
+
+                let def_node = NodeDefine {
+                    name,
+                    value: NodeLoad {
                         variable: var_node.clone(),
-                        value,
-                    }.into_node_ref();
+                    }.into_node_ref(),
+                }.into_node_ref();
 
-                    let def_node = NodeDefine {
-                        name,
-                        value: NodeLoad {
-                            variable: var_node.clone(),
-                        }.into_node_ref(),
-                    }.into_node_ref();
-
-                    root_nodes.push(var_node);
-                    root_nodes.push(store_node);
-                    root_nodes.push(def_node);
-                } else {
-                    let def_node = NodeDefine {
-                        name,
-                        value,
-                    }.into_node_ref();
-                    root_nodes.push(def_node);
-                }
+                root_nodes.push(var_node);
+                root_nodes.push(store_node);
+                root_nodes.push(def_node);
                 Ok(None)
             }
             Stmt::Expr(expr) => {

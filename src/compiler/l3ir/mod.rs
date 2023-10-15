@@ -382,162 +382,6 @@ impl InlineLookups {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct StackFrame {
-    params: Option<Vec<NodeRef>>,
-    args: Vec<NodeRef>,
-}
-
-#[derive(Debug, Clone)]
-pub struct InstantiateBlocks {
-    cache: HashMap<NodeRef, NodeRef>,
-    stack: Vec<StackFrame>,
-}
-impl InstantiateBlocks {
-    pub fn new() -> Self {
-        Self {
-            cache: HashMap::new(),
-            stack: vec![],
-        }
-    }
-
-    // A stack is completely pushed first by an instantiate and then by a block.
-    pub fn push_by_instantiate(&mut self, args: Vec<NodeRef>) {
-        let frame = StackFrame {
-            params: None,
-            args,
-        };
-        self.stack.push(frame);
-    }
-    pub fn push_by_block(&mut self, params: Vec<NodeRef>) -> bool {
-        let frame = self.stack.last_mut().unwrap();
-        if frame.params.is_some() {
-            return false;
-        }
-
-        frame.params = Some(params);
-        return true;
-    }
-    pub fn pop_by_block(&mut self) -> Vec<NodeRef> {
-        let frame = self.stack.last_mut().unwrap();
-        assert!(frame.params.is_some());
-        frame.params.take().unwrap()
-    }
-    pub fn pop_by_instantiate(&mut self) -> Vec<NodeRef> {
-        assert!(self.stack.last().unwrap().params.is_none());
-        self.stack.pop().unwrap().args
-    }
-
-    pub fn lookup(&mut self, param: &NodeRef) -> Option<NodeRef> {
-        for frame in self.stack.iter().rev() {
-            if let Some(params) = frame.params.as_ref() {
-                let arg = params.iter()
-                    .zip(frame.args.iter())
-                    .find_map(|(xparam, xarg)| {
-                        if xparam == param {
-                            Some(xarg)
-                        } else {
-                            None
-                        }
-                    });
-                if arg.is_some() {
-                    return arg.cloned();
-                }
-            }
-        }
-        None
-    }
-
-    pub fn apply(root: &NodeRef) -> Result<NodeRef> {
-        let mut x = Self::new();
-        x.push_by_instantiate(vec![]);
-        x.push_by_block(vec![]);
-        let root = x.force_lower(root)?;
-        x.pop_by_block();
-        x.pop_by_instantiate();
-        Ok(root)
-    }
-
-    pub fn force_lower(&mut self, node: &NodeRef) -> Result<NodeRef> {
-        self.lower(node)?
-            .ok_or_else(|| anyhow!("force lower must receive a transformed node"))
-    }
-    pub fn lower(&mut self, node: &NodeRef) -> Result<Option<NodeRef>> {
-        if let Some(x) = self.cache.get(&node) {
-            return Ok(Some(x.clone()));
-        }
-
-        let out = match node.as_ref() {
-            Node::Arg(arg) => {
-                let node = self.lookup(node)
-                    .ok_or_else(|| anyhow!("arg is not assigned: {}", arg.name))?;
-                let node = self.force_lower(&node)?;
-                Some(node)
-            },
-            Node::Block(block) => {
-                self.push_by_block(block.params.clone());
-
-                let mut nodes = Vec::new();
-                for node in block.nodes.iter() {
-                    let node = match node.as_ref() {
-                        Node::Instantiate(_) | Node::Emit(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => self.lower(&node)?,
-                        _ => None,
-                    };
-                    if let Some(node) = node {
-                        nodes.push(node);
-                    }
-                }
-                let result_node = block.result_node.as_ref()
-                    .map(|result_node| self.force_lower(result_node))
-                    .transpose()?;
-
-                self.pop_by_block();
-    
-                let node = NodeBlock {
-                    params: Vec::new(),
-                    nodes,
-                    result_node,
-                }.into_node_ref();
-
-                Some(node)
-            },
-            Node::Instantiate(instantiate) => {
-                self.push_by_instantiate(instantiate.args.clone());
-                let node = self.force_lower(&instantiate.node)?;
-                self.pop_by_instantiate();
-
-                match node.as_ref() {
-                    Node::Block(_) => {},
-                    Node::Instantiate(_) => {
-                        bail!("attempting to instantiate a block that is already instantiated: {:?}", node)
-                    }
-                    _ => bail!("expected block, got: {:?}", instantiate.node),
-                }
-
-                let node = NodeInstantiate {
-                    args: Vec::new(),
-                    node,
-                }.into_node_ref();
-
-                Some(node)
-            },
-
-            Node::Define(_) | Node::Lookup(_) => unreachable!(),
-            Node::Constant(_) | Node::Instr(_) | Node::Emit(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => {
-                node.transform(&mut |x| {
-                    self.lower(x)
-                })?
-            },
-        };
-
-        if let Some(out) = out.as_ref() {
-            self.cache.insert(node.clone(), out.clone());
-        }
-
-        Ok(out)
-    }
-}
-
 pub struct CollectLayouts {
     layouts: HashMap<u32, f32>,
 }
@@ -690,14 +534,13 @@ impl EvaluateControlFlow {
                     .and_then(|x| x.value.as_bool())
                     .ok_or_else(|| anyhow!("if-then-else condition must be a bool constant"))?;
 
-                let then_node = self.force_lower(&if_then_else.then_node)?;
-                assert!(then_node.is_instantiate(), "then node must be an instantiated block");
-                let else_node = self.force_lower(&if_then_else.else_node)?;
-                assert!(else_node.is_instantiate(), "else node must be an instantiated block");
-
                 if cond {
+                    let then_node = self.force_lower(&if_then_else.then_node)?;
+                    assert!(then_node.is_instantiate(), "then node must be an instantiated block");
                     Some(then_node)
                 } else {
+                    let else_node = self.force_lower(&if_then_else.else_node)?;
+                    assert!(else_node.is_instantiate(), "else node must be an instantiated block");
                     Some(else_node)
                 }
             },
@@ -740,6 +583,161 @@ impl EvaluateControlFlow {
         Ok(out)
     }
 
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct StackFrame {
+    params: Option<Vec<NodeRef>>,
+    args: Vec<NodeRef>,
+}
+#[derive(Debug, Clone)]
+pub struct InstantiateBlocks {
+    cache: HashMap<NodeRef, NodeRef>,
+    stack: Vec<StackFrame>,
+}
+impl InstantiateBlocks {
+    pub fn new() -> Self {
+        Self {
+            cache: HashMap::new(),
+            stack: vec![],
+        }
+    }
+
+    // A stack is completely pushed first by an instantiate and then by a block.
+    pub fn push_by_instantiate(&mut self, args: Vec<NodeRef>) {
+        let frame = StackFrame {
+            params: None,
+            args,
+        };
+        self.stack.push(frame);
+    }
+    pub fn push_by_block(&mut self, params: Vec<NodeRef>) -> bool {
+        let frame = self.stack.last_mut().unwrap();
+        if frame.params.is_some() {
+            return false;
+        }
+
+        frame.params = Some(params);
+        return true;
+    }
+    pub fn pop_by_block(&mut self) -> Vec<NodeRef> {
+        let frame = self.stack.last_mut().unwrap();
+        assert!(frame.params.is_some());
+        frame.params.take().unwrap()
+    }
+    pub fn pop_by_instantiate(&mut self) -> Vec<NodeRef> {
+        assert!(self.stack.last().unwrap().params.is_none());
+        self.stack.pop().unwrap().args
+    }
+
+    pub fn lookup(&mut self, param: &NodeRef) -> Option<NodeRef> {
+        for frame in self.stack.iter().rev() {
+            if let Some(params) = frame.params.as_ref() {
+                let arg = params.iter()
+                    .zip(frame.args.iter())
+                    .find_map(|(xparam, xarg)| {
+                        if xparam == param {
+                            Some(xarg)
+                        } else {
+                            None
+                        }
+                    });
+                if arg.is_some() {
+                    return arg.cloned();
+                }
+            }
+        }
+        None
+    }
+
+    pub fn apply(root: &NodeRef) -> Result<NodeRef> {
+        let mut x = Self::new();
+        x.push_by_instantiate(vec![]);
+        x.push_by_block(vec![]);
+        let root = x.force_lower(root)?;
+        x.pop_by_block();
+        x.pop_by_instantiate();
+        Ok(root)
+    }
+
+    pub fn force_lower(&mut self, node: &NodeRef) -> Result<NodeRef> {
+        self.lower(node)?
+            .ok_or_else(|| anyhow!("force lower must receive a transformed node"))
+    }
+    pub fn lower(&mut self, node: &NodeRef) -> Result<Option<NodeRef>> {
+        if let Some(x) = self.cache.get(&node) {
+            return Ok(Some(x.clone()));
+        }
+
+        let out = match node.as_ref() {
+            Node::Arg(arg) => {
+                let node = self.lookup(node)
+                    .ok_or_else(|| anyhow!("arg is not assigned: {}", arg.name))?;
+                let node = self.force_lower(&node)?;
+                Some(node)
+            },
+            Node::Block(block) => {
+                self.push_by_block(block.params.clone());
+
+                let mut nodes = Vec::new();
+                for node in block.nodes.iter() {
+                    let node = match node.as_ref() {
+                        Node::Instantiate(_) | Node::Emit(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => self.lower(&node)?,
+                        _ => None,
+                    };
+                    if let Some(node) = node {
+                        nodes.push(node);
+                    }
+                }
+                let result_node = block.result_node.as_ref()
+                    .map(|result_node| self.force_lower(result_node))
+                    .transpose()?;
+
+                self.pop_by_block();
+    
+                let node = NodeBlock {
+                    params: Vec::new(),
+                    nodes,
+                    result_node,
+                }.into_node_ref();
+
+                Some(node)
+            },
+            Node::Instantiate(instantiate) => {
+                self.push_by_instantiate(instantiate.args.clone());
+                let node = self.force_lower(&instantiate.node)?;
+                self.pop_by_instantiate();
+
+                match node.as_ref() {
+                    Node::Block(_) => {},
+                    Node::Instantiate(_) => {
+                        bail!("attempting to instantiate a block that is already instantiated: {:?}", node)
+                    }
+                    _ => bail!("expected block, got: {:?}", instantiate.node),
+                }
+
+                let node = NodeInstantiate {
+                    args: Vec::new(),
+                    node,
+                }.into_node_ref();
+
+                Some(node)
+            },
+
+            Node::Define(_) | Node::Lookup(_) => unreachable!(),
+            Node::Constant(_) | Node::Instr(_) | Node::Emit(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => {
+                node.transform(&mut |x| {
+                    self.lower(x)
+                })?
+            },
+        };
+
+        if let Some(out) = out.as_ref() {
+            self.cache.insert(node.clone(), out.clone());
+        }
+
+        Ok(out)
+    }
 }
 
 pub struct FlattenBlocks {
@@ -967,10 +965,9 @@ impl Lower {
 
     pub fn apply(node: &NodeRef) -> Result<l0ir::InstrContext> {
         let node = InlineLookups::apply(&node)?;
-        dbg!(&node);
-        let node = InstantiateBlocks::apply(&node)?;
         let (node, layouts) = CollectLayouts::apply(&node)?;
         let node = EvaluateControlFlow::apply(&node)?;
+        let node = InstantiateBlocks::apply(&node)?;
         let node = FlattenBlocks::apply(&node)?;
 
         let mut x = Self::new();
