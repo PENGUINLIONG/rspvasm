@@ -83,6 +83,28 @@ pub struct NodeStore {
     pub variable: NodeRef,
     pub value: NodeRef,
 }
+#[derive(Debug, Clone)]
+pub enum BinaryOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    LogicalAnd,
+    LogicalOr,
+}
+#[derive(Debug, Clone)]
+pub struct NodeBinary {
+    pub binary_op: BinaryOp,
+    pub lhs: NodeRef,
+    pub rhs: NodeRef,
+}
 
 #[derive(Clone)]
 pub enum Node {
@@ -100,6 +122,7 @@ pub enum Node {
     Variable(NodeVariable),
     Load(NodeLoad),
     Store(NodeStore),
+    Binary(NodeBinary),
 }
 def_into_node_ref!(
     Constant,
@@ -116,6 +139,7 @@ def_into_node_ref!(
     Variable,
     Load,
     Store,
+    Binary,
 );
 
 impl Node {
@@ -275,6 +299,18 @@ impl NodeRef {
 
                 Some(node)
             },
+            Node::Binary(binary) => {
+                let lhs = binary.lhs.force_transform(lower)?;
+                let rhs = binary.rhs.force_transform(lower)?;
+
+                let node = NodeBinary {
+                    binary_op: binary.binary_op.clone(),
+                    lhs,
+                    rhs,
+                }.into_node_ref();
+
+                Some(node)
+            },
         };
 
         Ok(out)
@@ -367,7 +403,7 @@ impl InlineLookups {
                 Some(node)
             },
 
-            Node::Arg(_) | Node::Constant(_) | Node::Layout(_) | Node::Instr(_) | Node::Instantiate(_) | Node::Emit(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => {
+            Node::Arg(_) | Node::Constant(_) | Node::Layout(_) | Node::Instr(_) | Node::Instantiate(_) | Node::Emit(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) | Node::Binary(_) => {
                 node.transform(&mut |x| {
                     self.lower(x)
                 })?
@@ -398,14 +434,14 @@ impl CollectLayouts {
                 let opcode = layout.op.as_ref()
                     .as_constant()
                     .and_then(|x| x.as_int())
-                    .filter(|x| *x < u16::MAX as u32)
+                    .filter(|x| *x < u16::MAX as i32)
                     .ok_or_else(|| anyhow!("layout op must be an u16 opcode"))?;
                 let position = layout.position.as_ref()
                     .as_constant()
                     .and_then(|x| x.as_float())
                     .ok_or_else(|| anyhow!("layout position must be a float"))?;
 
-                self.layouts.insert(opcode, position);
+                self.layouts.insert(opcode as u32, position);
                 None
             },
             _ => Some(node.clone()),
@@ -490,19 +526,6 @@ impl EvaluateControlFlow {
         Ok(node)
     }
 
-    pub fn eval_constexpr(&mut self, node: &NodeRef) -> Result<ConstantValue> {
-        let node = self.force_lower(node)?;
-
-        match node.as_ref() {
-            Node::Constant(constant) => {
-                Ok(constant.value.clone())
-            }
-            // TODO: (penguinliong) Constexpr logics here. Like unary, binary
-            // ops.
-            _ => Err(anyhow!("not a constexpr: {:?}", node)),
-        }
-    }
-
     pub fn force_lower(&mut self, node: &NodeRef) -> Result<NodeRef> {
         let out = self.lower(node)?
             .ok_or_else(|| anyhow!("cannot lower non-instruction nodes"))?;
@@ -561,6 +584,41 @@ impl EvaluateControlFlow {
 
                 None
             }
+
+            Node::Binary(binary) => {
+                let lhs = self.force_lower(&binary.lhs)?
+                    .as_constant()
+                    .ok_or_else(|| anyhow!("lhs must be a constant"))?
+                    .value
+                    .clone();
+                let rhs = self.force_lower(&binary.rhs)?
+                    .as_constant()
+                    .ok_or_else(|| anyhow!("rhs must be a constant"))?
+                    .value
+                    .clone();
+
+                let out = match binary.binary_op {
+                    BinaryOp::Add => lhs.add(&rhs),
+                    BinaryOp::Sub => lhs.sub(&rhs),
+                    BinaryOp::Mul => lhs.mul(&rhs),
+                    BinaryOp::Div => lhs.div(&rhs),
+                    BinaryOp::Rem => lhs.rem(&rhs),
+                    BinaryOp::Eq => lhs.eq(&rhs),
+                    BinaryOp::Ne => lhs.ne(&rhs),
+                    BinaryOp::Lt => lhs.lt(&rhs),
+                    BinaryOp::Le => lhs.le(&rhs),
+                    BinaryOp::Gt => lhs.gt(&rhs),
+                    BinaryOp::Ge => lhs.ge(&rhs),
+                    BinaryOp::LogicalAnd => lhs.logic_and(&rhs),
+                    BinaryOp::LogicalOr => lhs.logic_or(&rhs),
+                };
+
+                let node = NodeConstant {
+                    value: out,
+                }.into_node_ref();
+
+                Some(node)
+            },
 
             Node::Define(_) | Node::Lookup(_) | Node::Layout(_) => unreachable!(),
             Node::Arg(_) | Node::Constant(_) | Node::Instr(_) | Node::Block(_) | Node::Instantiate(_) | Node::Emit(_) => {
@@ -725,7 +783,7 @@ impl InstantiateBlocks {
             },
 
             Node::Define(_) | Node::Lookup(_) => unreachable!(),
-            Node::Constant(_) | Node::Instr(_) | Node::Emit(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => {
+            Node::Constant(_) | Node::Instr(_) | Node::Emit(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) | Node::Binary(_) => {
                 node.transform(&mut |x| {
                     self.lower(x)
                 })?
@@ -879,16 +937,12 @@ impl Lower {
                 }
             },
 
-            Node::Define(_) | Node::Lookup(_) | Node::Arg(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => unreachable!("{:?}", node),
+            Node::Define(_) | Node::Lookup(_) | Node::Arg(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) | Node::Binary(_) => unreachable!("{:?}", node),
         }
 
         Ok(())
     }
 
-    pub fn force_lower(&mut self, node: &NodeRef) -> Result<l0ir::IdToken> {
-        self.lower(node)?
-            .ok_or_else(|| anyhow!("force lower must receive a transformed node: {:?}", node))
-    }
     pub fn lower(&mut self, node: &NodeRef) -> Result<Option<l0ir::IdToken>> {
         let out = match node.as_ref() {
             Node::Constant(_) => None,
@@ -919,7 +973,7 @@ impl Lower {
                         let opcode = instr.opcode.as_constant()
                             .and_then(|x| x.value.as_int())
                             .and_then(|x| {
-                                if x < u16::MAX as u32 {
+                                if x < u16::MAX as i32 {
                                     Some(x as u16)
                                 } else {
                                     None
@@ -957,7 +1011,7 @@ impl Lower {
                 }
             },
 
-            Node::Define(_) | Node::Lookup(_) | Node::Arg(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => unreachable!("{:?}", node),
+            Node::Define(_) | Node::Lookup(_) | Node::Arg(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) | Node::Binary(_) => unreachable!("{:?}", node),
         };
 
         Ok(out)

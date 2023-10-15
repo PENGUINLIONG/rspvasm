@@ -5,7 +5,7 @@ pub mod span;
 #[derive(Debug, Clone)]
 pub enum ConstantValue {
     Bool(bool),
-    Int(u32),
+    Int(i32),
     Float(f32),
     String(String),
 }
@@ -16,7 +16,7 @@ impl ConstantValue {
             _ => None,
         }
     }
-    pub fn as_int(&self) -> Option<u32> {
+    pub fn as_int(&self) -> Option<i32> {
         match self {
             Self::Int(x) => Some(*x),
             _ => None,
@@ -33,7 +33,7 @@ impl ConstantValue {
     pub fn to_words(&self) -> Vec<u32> {
         match self {
             Self::Bool(_) => panic!("boolean value cannot be represented in words"),
-            Self::Int(x) => vec![*x],
+            Self::Int(x) => vec![*x as u32],
             Self::Float(x) => vec![x.to_bits()],
             Self::String(x) => {
                 let mut words = vec![];
@@ -48,6 +48,135 @@ impl ConstantValue {
                 }
                 words
             }
+        }
+    }
+
+    pub fn add(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Int(x), Self::Int(y)) => Self::Int(x + y),
+            (Self::Float(x), Self::Float(y)) => Self::Float(x + y),
+            _ => panic!("cannot add {:?} and {:?}", self, other),
+        }
+    }
+    pub fn sub(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Int(x), Self::Int(y)) => Self::Int(x - y),
+            (Self::Float(x), Self::Float(y)) => Self::Float(x - y),
+            _ => panic!("cannot sub {:?} and {:?}", self, other),
+        }
+    }
+    pub fn mul(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Int(x), Self::Int(y)) => Self::Int(x * y),
+            (Self::Float(x), Self::Float(y)) => Self::Float(x * y),
+            _ => panic!("cannot mul {:?} and {:?}", self, other),
+        }
+    }
+    pub fn div(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Int(x), Self::Int(y)) => Self::Int(x / y),
+            (Self::Float(x), Self::Float(y)) => Self::Float(x / y),
+            _ => panic!("cannot div {:?} and {:?}", self, other),
+        }
+    }
+    pub fn rem(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Int(x), Self::Int(y)) => Self::Int(x % y),
+            (Self::Float(x), Self::Float(y)) => Self::Float(x % y),
+            _ => panic!("cannot rem {:?} and {:?}", self, other),
+        }
+    }
+    pub fn neg(&self) -> Self {
+        match self {
+            Self::Int(x) => Self::Int(-x),
+            Self::Float(x) => Self::Float(-x),
+            _ => panic!("cannot neg {:?}", self),
+        }
+    }
+    pub fn not(&self) -> Self {
+        match self {
+            Self::Bool(x) => Self::Bool(!x),
+            _ => panic!("cannot not {:?}", self),
+        }
+    }
+    pub fn xor(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Bool(x), Self::Bool(y)) => Self::Bool(*x ^ *y),
+            _ => panic!("cannot xor {:?} and {:?}", self, other),
+        }
+    }
+    pub fn shl(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Int(x), Self::Int(y)) => Self::Int(x << y),
+            _ => panic!("cannot shl {:?} and {:?}", self, other),
+        }
+    }
+    pub fn shr(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Int(x), Self::Int(y)) => Self::Int(x >> y),
+            _ => panic!("cannot shr {:?} and {:?}", self, other),
+        }
+    }
+    pub fn eq(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Bool(x), Self::Bool(y)) => Self::Bool(*x == *y),
+            (Self::Int(x), Self::Int(y)) => Self::Bool(*x == *y),
+            (Self::Float(x), Self::Float(y)) => Self::Bool(*x == *y),
+            (Self::String(x), Self::String(y)) => Self::Bool(*x == *y),
+            _ => panic!("cannot eq {:?} and {:?}", self, other),
+        }
+    }
+    pub fn ne(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Bool(x), Self::Bool(y)) => Self::Bool(*x != *y),
+            (Self::Int(x), Self::Int(y)) => Self::Bool(*x != *y),
+            (Self::Float(x), Self::Float(y)) => Self::Bool(*x != *y),
+            (Self::String(x), Self::String(y)) => Self::Bool(*x != *y),
+            _ => panic!("cannot ne {:?} and {:?}", self, other),
+        }
+    }
+    pub fn lt(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Int(x), Self::Int(y)) => Self::Bool(*x < *y),
+            (Self::Float(x), Self::Float(y)) => Self::Bool(*x < *y),
+            (Self::String(x), Self::String(y)) => Self::Bool(*x < *y),
+            _ => panic!("cannot lt {:?} and {:?}", self, other),
+        }
+    }
+    pub fn le(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Int(x), Self::Int(y)) => Self::Bool(*x <= *y),
+            (Self::Float(x), Self::Float(y)) => Self::Bool(*x <= *y),
+            (Self::String(x), Self::String(y)) => Self::Bool(*x <= *y),
+            _ => panic!("cannot le {:?} and {:?}", self, other),
+        }
+    }
+    pub fn gt(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Int(x), Self::Int(y)) => Self::Bool(*x > *y),
+            (Self::Float(x), Self::Float(y)) => Self::Bool(*x > *y),
+            (Self::String(x), Self::String(y)) => Self::Bool(*x > *y),
+            _ => panic!("cannot gt {:?} and {:?}", self, other),
+        }
+    }
+    pub fn ge(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Int(x), Self::Int(y)) => Self::Bool(*x >= *y),
+            (Self::Float(x), Self::Float(y)) => Self::Bool(*x >= *y),
+            (Self::String(x), Self::String(y)) => Self::Bool(*x >= *y),
+            _ => panic!("cannot ge {:?} and {:?}", self, other),
+        }
+    }
+    pub fn logic_and(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Bool(x), Self::Bool(y)) => Self::Bool(*x && *y),
+            _ => panic!("cannot logic_and {:?} and {:?}", self, other),
+        }
+    }
+    pub fn logic_or(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Bool(x), Self::Bool(y)) => Self::Bool(*x || *y),
+            _ => panic!("cannot logic_or {:?} and {:?}", self, other),
         }
     }
 }

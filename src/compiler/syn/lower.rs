@@ -24,7 +24,7 @@ impl LowerToAst {
             }
             Lit::Int(value) => {
                 NodeConstant {
-                    value: ConstantValue::Int(*value as u32),
+                    value: ConstantValue::Int(*value as i32),
                 }.into_node_ref()
             }
             Lit::Float(value) => {

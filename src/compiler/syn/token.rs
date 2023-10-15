@@ -134,6 +134,20 @@ define_token! {
     "_" => Underscore
     "|" => Hline
     "#" => Hash
+
+    "+" => Add
+    "-" => Sub
+    "*" => Mul
+    "/" => Div
+    "%" => Rem
+    "&&" => LogicalAnd
+    "||" => LogicalOr
+    "==" => EqEq
+    "!=" => Ne
+    "<" => Lt
+    "<=" => Le
+    ">" => Gt
+    ">=" => Ge
 }
 
 #[macro_export]
@@ -161,6 +175,20 @@ macro_rules! Token {
     [_] => { $crate::compiler::syn::token::Underscore };
     [|] => { $crate::compiler::syn::token::Hline };
     [#] => { $crate::compiler::syn::token::Hash };
+
+    [+] => { $crate::compiler::syn::token::Add };
+    [-] => { $crate::compiler::syn::token::Sub };
+    [*] => { $crate::compiler::syn::token::Mul };
+    [/] => { $crate::compiler::syn::token::Div };
+    [%] => { $crate::compiler::syn::token::Rem };
+    [&&] => { $crate::compiler::syn::token::LogicalAnd };
+    [||] => { $crate::compiler::syn::token::LogicalOr };
+    [==] => { $crate::compiler::syn::token::EqEq };
+    [!=] => { $crate::compiler::syn::token::Ne };
+    [<] => { $crate::compiler::syn::token::Lt };
+    [<=] => { $crate::compiler::syn::token::Le };
+    [>] => { $crate::compiler::syn::token::Gt };
+    [>=] => { $crate::compiler::syn::token::Ge };
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

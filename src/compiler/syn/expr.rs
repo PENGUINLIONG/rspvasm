@@ -231,6 +231,106 @@ impl Parse for ExprAssign {
 }
 
 #[derive(Debug, Clone)]
+pub enum BinaryOp {
+    Add(Token![+]),
+    Sub(Token![-]),
+    Mul(Token![*]),
+    Div(Token![/]),
+    Rem(Token![%]),
+    Eq(Token![==]),
+    Ne(Token![!=]),
+    Lt(Token![<]),
+    Le(Token![<=]),
+    Gt(Token![>]),
+    Ge(Token![>=]),
+    LogicalAnd(Token![&&]),
+    LogicalOr(Token![||]),
+}
+impl Parse for BinaryOp {
+    fn parse(_: &mut ParseBuffer) -> Result<Self> {
+        panic!("use ExprBinary::parse instead");
+    }
+
+    fn span(&self) -> Span {
+        match self {
+            Self::Add(t) => t.span(),
+            Self::Sub(t) => t.span(),
+            Self::Mul(t) => t.span(),
+            Self::Div(t) => t.span(),
+            Self::Rem(t) => t.span(),
+            Self::Eq(t) => t.span(),
+            Self::Ne(t) => t.span(),
+            Self::Lt(t) => t.span(),
+            Self::Le(t) => t.span(),
+            Self::Gt(t) => t.span(),
+            Self::Ge(t) => t.span(),
+            Self::LogicalAnd(t) => t.span(),
+            Self::LogicalOr(t) => t.span(),
+        }
+    }
+}
+#[derive(Debug, Clone)]
+pub struct ExprBinary {
+    binary_op: BinaryOp,
+    lhs: Box<Expr>,
+    rhs: Box<Expr>,
+    span: Span,
+}
+impl Parse for ExprBinary {
+    fn parse(input: &mut ParseBuffer) -> Result<Self> {
+        let lhs = input.parse::<Expr>()?;
+        let binary_op = if input.peek::<Token![+]>() {
+            BinaryOp::Add(input.parse::<Token![+]>()?)
+        } else if input.peek::<Token![-]>() {
+            BinaryOp::Sub(input.parse::<Token![-]>()?)
+        } else if input.peek::<Token![*]>() {
+            BinaryOp::Mul(input.parse::<Token![*]>()?)
+        } else if input.peek::<Token![/]>() {
+            BinaryOp::Div(input.parse::<Token![/]>()?)
+        } else if input.peek::<Token![%]>() {
+            BinaryOp::Rem(input.parse::<Token![%]>()?)
+        } else if input.peek::<Token![==]>() {
+            BinaryOp::Eq(input.parse::<Token![==]>()?)
+        } else if input.peek::<Token![!=]>() {
+            BinaryOp::Ne(input.parse::<Token![!=]>()?)
+        } else if input.peek::<Token![<]>() {
+            BinaryOp::Lt(input.parse::<Token![<]>()?)
+        } else if input.peek::<Token![<=]>() {
+            BinaryOp::Le(input.parse::<Token![<=]>()?)
+        } else if input.peek::<Token![>]>() {
+            BinaryOp::Gt(input.parse::<Token![>]>()?)
+        } else if input.peek::<Token![>=]>() {
+            BinaryOp::Ge(input.parse::<Token![>=]>()?)
+        } else if input.peek::<Token![&&]>() {
+            BinaryOp::LogicalAnd(input.parse::<Token![&&]>()?)
+        } else if input.peek::<Token![||]>() {
+            BinaryOp::LogicalOr(input.parse::<Token![||]>()?)
+        } else {
+            bail!("expected binary operator ({})", input.surrounding());
+        };
+        let rhs = input.parse::<Expr>()?;
+
+        let span = Span::join([
+            binary_op.span(),
+            lhs.span(),
+            rhs.span(),
+        ]);
+
+        let out = Self {
+            binary_op,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+            span,
+        };
+        Ok(out)
+    }
+
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ExprIfThenElse {
     pub if_token: Token![if],
     pub condition: Box<Expr>,

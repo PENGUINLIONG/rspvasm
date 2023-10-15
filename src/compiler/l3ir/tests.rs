@@ -14,13 +14,13 @@ fn disassemble_spirv(spirv: &[u32]) -> String {
     module.disassemble()
 }
 
-fn make_int_constant(x: u32) -> NodeRef {
+fn make_int_constant(x: i32) -> NodeRef {
     NodeConstant {
         value: ConstantValue::Int(x),
     }.into_node_ref()
 }
 fn make_op_constant(opcode: spirv::Op) -> NodeRef {
-    make_int_constant(opcode as u32)
+    make_int_constant(opcode as i32)
 }
 
 #[test]
