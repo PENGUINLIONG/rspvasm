@@ -2,6 +2,7 @@ use std::{io::{self, Write}, fs};
 use clap::Parser;
 
 mod compiler;
+mod interp;
 
 #[cfg(test)]
 mod tests;

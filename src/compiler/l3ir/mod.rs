@@ -10,6 +10,8 @@ use crate::def_into_node_ref;
 use super::common::ConstantValue;
 use super::l1ir;
 
+mod ty;
+
 #[cfg(test)]
 mod tests;
 
@@ -322,7 +324,7 @@ impl InlineLookups {
                     .ok_or_else(|| anyhow!("cannot find symbol: {}", lookup.name))?;
                 Some(node)
             },
-            
+
             Node::Block(block) => {
                 self.push();
 
@@ -337,7 +339,7 @@ impl InlineLookups {
                     .transpose()?;
 
                 self.pop();
-    
+
                 let node = NodeBlock {
                     params,
                     nodes,
