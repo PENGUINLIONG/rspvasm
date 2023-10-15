@@ -311,3 +311,39 @@ fn test_var_load_store() {
 %1 = OpTypeInt 32 1
 "#.trim());
 }
+
+#[test]
+fn test_increment_counter() {
+    let global_ = NodeInstantiate {
+        node: NodeBlock {
+            nodes: vec![
+
+                NodeEmit {
+                    instr: NodeInstr {
+                        opcode: make_op_constant(spirv::Op::TypeInt),
+                        operands: vec![
+                            NodeBinary {
+                                binary_op: BinaryOp::Add,
+                                lhs: make_int_constant(24),
+                                rhs: make_int_constant(8),
+                            }.into_node_ref(),
+                            make_int_constant(1),
+                        ],
+                        result_type: None,
+                        has_result: true,
+                    }.into_node_ref(),
+                }.into_node_ref(),
+            ],
+            params: vec![],
+            result_node: None,
+        }.into_node_ref(),
+        args: vec![],
+    }.into_node_ref();
+
+    let x = l3ir::Lower::apply(&global_).unwrap();
+    let spirv = SpirvBinary::from_ir(x);
+    let dis = spirv.disassemble();
+    assert_eq!(dis, r#"
+%1 = OpTypeInt 32 1
+"#.trim());
+}
