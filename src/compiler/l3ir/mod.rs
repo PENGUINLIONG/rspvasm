@@ -65,6 +65,11 @@ pub struct NodeIfThenElse {
     pub else_node: NodeRef, // Block
 }
 #[derive(Debug, Clone)]
+pub struct NodeWhile {
+    pub cond: NodeRef,
+    pub body_node: NodeRef, // Block
+}
+#[derive(Debug, Clone)]
 pub struct NodeVariable {
     pub name: String,
 }
@@ -90,6 +95,7 @@ pub enum Node {
     Lookup(NodeLookup),
     Layout(NodeLayout),
     IfThenElse(NodeIfThenElse),
+    While(NodeWhile),
     Variable(NodeVariable),
     Load(NodeLoad),
     Store(NodeStore),
@@ -105,6 +111,7 @@ def_into_node_ref!(
     Lookup,
     Layout,
     IfThenElse,
+    While,
     Variable,
     Load,
     Store,
@@ -231,6 +238,17 @@ impl NodeRef {
 
                 Some(node)
             },
+            Node::While(while_) => {
+                let cond = while_.cond.force_transform(lower)?;
+                let body_node = while_.cond.force_transform(lower)?;
+
+                let node = NodeWhile {
+                    cond,
+                    body_node,
+                }.into_node_ref();
+
+                Some(node)
+            }
             Node::Variable(_) => {
                 Some(self.clone())
             },
@@ -348,7 +366,7 @@ impl InlineLookups {
                 Some(node)
             },
 
-            Node::Arg(_) | Node::Constant(_) | Node::Layout(_) | Node::Instr(_) | Node::Instantiate(_) | Node::Emit(_) | Node::IfThenElse(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => {
+            Node::Arg(_) | Node::Constant(_) | Node::Layout(_) | Node::Instr(_) | Node::Instantiate(_) | Node::Emit(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => {
                 node.transform(&mut |x| {
                     self.lower(x)
                 })?
@@ -461,7 +479,7 @@ impl InstantiateBlocks {
                 let mut nodes = Vec::new();
                 for node in block.nodes.iter() {
                     let node = match node.as_ref() {
-                        Node::Instantiate(_) | Node::Emit(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => self.lower(&node)?,
+                        Node::Instantiate(_) | Node::Emit(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => self.lower(&node)?,
                         _ => None,
                     };
                     if let Some(node) = node {
@@ -503,24 +521,8 @@ impl InstantiateBlocks {
                 Some(node)
             },
 
-            Node::IfThenElse(if_then_else) => {
-                let cond = self.force_lower(&if_then_else.cond)?
-                    .as_constant()
-                    .and_then(|x| x.value.as_bool())
-                    .ok_or_else(|| anyhow!("if-then-else condition must be a bool constant"))?;
-
-                let then_node = self.force_lower(&if_then_else.then_node)?;
-                assert!(then_node.is_block(), "then node must be a block");
-                let else_node = self.force_lower(&if_then_else.else_node)?;
-                assert!(else_node.is_block(), "else node must be a block");
-                
-                let out = if cond { then_node } else { else_node };
-
-                Some(out)
-            },
-            
             Node::Define(_) | Node::Lookup(_) => unreachable!(),
-            Node::Constant(_) | Node::Instr(_) | Node::Emit(_) | Node::Layout(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => {
+            Node::Constant(_) | Node::Instr(_) | Node::Emit(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => {
                 node.transform(&mut |x| {
                     self.lower(x)
                 })?
@@ -680,21 +682,41 @@ impl EvaluateControlFlow {
                 self.store(&store.variable, value)?;
                 None
             },
-            Node::IfThenElse(if_then_else) => {
-                let cond = self.eval_constexpr(&if_then_else.cond)?;
-                let then_node = self.force_lower(&if_then_else.then_node)?;
-                let else_node = self.force_lower(&if_then_else.else_node)?;
 
-                if let Some(succ) = cond.as_bool() {
-                    if succ {
-                        Some(then_node)
-                    } else {
-                        Some(else_node)
-                    }
+            Node::IfThenElse(if_then_else) => {
+                let cond = self.force_lower(&if_then_else.cond)?
+                    .as_constant()
+                    .and_then(|x| x.value.as_bool())
+                    .ok_or_else(|| anyhow!("if-then-else condition must be a bool constant"))?;
+
+                let then_node = self.force_lower(&if_then_else.then_node)?;
+                assert!(then_node.is_instantiate(), "then node must be an instantiated block");
+                let else_node = self.force_lower(&if_then_else.else_node)?;
+                assert!(else_node.is_instantiate(), "else node must be an instantiated block");
+
+                if cond {
+                    Some(then_node)
                 } else {
-                    bail!("if-then-else condition must be a bool constant")
+                    Some(else_node)
                 }
             },
+            Node::While(while_) => {
+                let cond = self.force_lower(&while_.cond)?
+                    .as_constant()
+                    .and_then(|x| x.value.as_bool())
+                    .ok_or_else(|| anyhow!("while condition must be a bool constant"))?;
+
+                loop {
+                    if cond {
+                        let body_node = self.force_lower(&while_.body_node)?;
+                        assert!(body_node.is_instantiate(), "body node must be an instantiated block");
+                    } else {
+                        break;
+                    }
+                }
+
+                None
+            }
 
             Node::Define(_) | Node::Lookup(_) | Node::Layout(_) => unreachable!(),
             Node::Arg(_) | Node::Constant(_) | Node::Instr(_) | Node::Block(_) | Node::Instantiate(_) | Node::Emit(_) => {
@@ -792,7 +814,6 @@ impl FlattenBlocks {
             self.cache.insert(node.clone(), out.clone());
         }
 
-        dbg!(node, &out);
         Ok(out)
     }
 
@@ -859,7 +880,7 @@ impl Lower {
                 }
             },
 
-            Node::Define(_) | Node::Lookup(_) | Node::Arg(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => unreachable!("{:?}", node),
+            Node::Define(_) | Node::Lookup(_) | Node::Arg(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => unreachable!("{:?}", node),
         }
 
         Ok(())
@@ -937,7 +958,7 @@ impl Lower {
                 }
             },
 
-            Node::Define(_) | Node::Lookup(_) | Node::Arg(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => unreachable!("{:?}", node),
+            Node::Define(_) | Node::Lookup(_) | Node::Arg(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => unreachable!("{:?}", node),
         };
 
         Ok(out)
@@ -945,6 +966,7 @@ impl Lower {
 
     pub fn apply(node: &NodeRef) -> Result<l0ir::InstrContext> {
         let node = InlineLookups::apply(&node)?;
+        dbg!(&node);
         let node = InstantiateBlocks::apply(&node)?;
         let (node, layouts) = CollectLayouts::apply(&node)?;
         let node = EvaluateControlFlow::apply(&node)?;

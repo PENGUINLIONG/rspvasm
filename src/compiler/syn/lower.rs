@@ -161,13 +161,16 @@ impl LowerToAst {
                     }.into_node_ref()
                 };
 
-                let node = NodeInstantiate {
-                    node: NodeIfThenElse {
-                        cond: condition,
-                        then_node,
-                        else_node,
+                let node = NodeIfThenElse {
+                    cond: condition,
+                    then_node: NodeInstantiate {
+                        node: then_node,
+                        args: vec![],
                     }.into_node_ref(),
-                    args: vec![],
+                    else_node: NodeInstantiate {
+                        node: else_node,
+                        args: vec![],
+                    }.into_node_ref(),
                 }.into_node_ref();
                 Ok(node)
             }
@@ -197,7 +200,8 @@ impl LowerToAst {
             Stmt::Expr(expr) => {
                 let node = self.lower_expr(&expr.expr)?;
                 match node.as_ref() {
-                    Node::Instantiate(_) | Node::Emit(_) | Node::Lookup(_) => {
+                    // (penguinliong) Why we filter the node types here though?
+                    Node::Instantiate(_) | Node::Emit(_) | Node::Lookup(_) | Node::IfThenElse(_) | Node::While(_) => {
                         root_nodes.push(node.clone());
                     }
                     _ => {}
