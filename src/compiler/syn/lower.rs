@@ -174,6 +174,19 @@ impl LowerToAst {
                 }.into_node_ref();
                 Ok(node)
             }
+            Expr::While(while_) => {
+                let condition = self.lower_expr(&while_.condition)?;
+                let body_node = self.lower_expr(&while_.body)?;
+
+                let node = NodeWhile {
+                    cond: condition,
+                    body_node: NodeInstantiate {
+                        node: body_node,
+                        args: vec![],
+                    }.into_node_ref(),
+                }.into_node_ref();
+                Ok(node)
+            }
         }
     }
 

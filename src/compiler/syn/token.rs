@@ -120,6 +120,7 @@ define_token! {
     "layout" => Layout
     "if" => If
     "else" => Else
+    "while" => While
     "=" => Eq
     ";" => Semi
     ":" => Colon
@@ -144,6 +145,7 @@ macro_rules! Token {
     [layout] => { $crate::compiler::syn::token::Layout };
     [if] => { $crate::compiler::syn::token::If };
     [else] => { $crate::compiler::syn::token::Else };
+    [while] => { $crate::compiler::syn::token::While };
     [=] => { $crate::compiler::syn::token::Eq };
     [;] => { $crate::compiler::syn::token::Semi };
     [:] => { $crate::compiler::syn::token::Colon };

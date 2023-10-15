@@ -242,6 +242,39 @@ impl Parse for ExprIfThenElse {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ExprWhile {
+    pub while_token: Token![while],
+    pub condition: Box<Expr>,
+    pub body: Box<Expr>,
+    pub span: Span,
+}
+impl Parse for ExprWhile {
+    fn parse(input: &mut ParseBuffer) -> Result<Self> {
+        let while_token = input.parse::<Token![while]>()?;
+        let condition = input.parse::<Expr>()?;
+        let body = input.parse::<ExprBlock>()?;
+        let body = Expr::Block(body);
+
+        let span = Span::join([
+            while_token.span(),
+            condition.span(),
+            body.span(),
+        ]);
+
+        let out = Self {
+            while_token,
+            condition: Box::new(condition),
+            body: Box::new(body),
+            span,
+        };
+        Ok(out)
+    }
+
+    fn span(&self) -> Span {
+        self.span
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum Expr {
@@ -251,6 +284,7 @@ pub enum Expr {
     Block(ExprBlock),
     Call(ExprCall),
     IfThenElse(ExprIfThenElse),
+    While(ExprWhile),
 }
 impl Parse for Expr {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
@@ -279,6 +313,11 @@ impl Parse for Expr {
         if input.peek::<Token![if]>() {
             let if_then_else = input.parse::<ExprIfThenElse>()?;
             return Ok(Self::IfThenElse(if_then_else));
+        }
+
+        if input.peek::<Token![while]>() {
+            let while_ = input.parse::<ExprWhile>()?;
+            return Ok(Self::While(while_));
         }
 
         if input.peek::<Literal>() {
@@ -313,6 +352,7 @@ impl Parse for Expr {
             Self::Block(block) => block.span(),
             Self::Call(call) => call.span(),
             Self::IfThenElse(if_then_else) => if_then_else.span(),
+            Self::While(while_) => while_.span(),
         }
     }
 }
