@@ -1,6 +1,5 @@
 mod common;
 mod l0ir;
-mod l1ir;
 mod l3ir;
 mod syn;
 

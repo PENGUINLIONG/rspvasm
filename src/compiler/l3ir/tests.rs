@@ -1,7 +1,7 @@
 use super::*;
 
 use rspirv::binary::Disassemble;
-use crate::compiler::{l1ir, l3ir, l0ir::SpirvBinary};
+use crate::compiler::{l3ir, l0ir::SpirvBinary};
 
 use pretty_assertions::assert_eq;
 

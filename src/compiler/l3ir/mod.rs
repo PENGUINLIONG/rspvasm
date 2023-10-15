@@ -1,14 +1,13 @@
 //! Level-4 Intermediate Representation
 //!
 //! Named lookup.
-use std::cell::Ref;
 use std::collections::HashMap;
 use anyhow::{anyhow, Result, bail};
 
 use crate::def_into_node_ref;
 
 use super::common::ConstantValue;
-use super::{l1ir, l0ir};
+use super::l0ir;
 
 mod ty;
 
