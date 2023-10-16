@@ -344,3 +344,53 @@ fn test_increment_counter() {
 %1 = OpTypeInt 32 1
 "#.trim());
 }
+
+#[test]
+fn test_array() {
+    let global_ = NodeInstantiate {
+        node: NodeBlock {
+            nodes: vec![
+                NodeDefine {
+                    name: "i32_args".to_string(),
+                    value: NodeArray {
+                        elems: vec![
+                            make_int_constant(32),
+                            make_int_constant(1),
+                        ],
+                    }.into_node_ref(),
+                }.into_node_ref(),
+                NodeEmit {
+                    instr: NodeInstr {
+                        opcode: make_op_constant(spirv::Op::TypeInt),
+                        operands: vec![
+                            NodeIndex {
+                                array: NodeLookup {
+                                    name: "i32_args".to_string(),
+                                }.into_node_ref(),
+                                index: make_int_constant(0),
+                            }.into_node_ref(),
+                            NodeIndex {
+                                array: NodeLookup {
+                                    name: "i32_args".to_string(),
+                                }.into_node_ref(),
+                                index: make_int_constant(1),
+                            }.into_node_ref(),
+                        ],
+                        result_type: None,
+                        has_result: true,
+                    }.into_node_ref(),
+                }.into_node_ref(),
+            ],
+            params: vec![],
+            result_node: None,
+        }.into_node_ref(),
+        args: vec![],
+    }.into_node_ref();
+
+    let x = l3ir::Lower::apply(&global_).unwrap();
+    let spirv = SpirvBinary::from_ir(x);
+    let dis = spirv.disassemble();
+    assert_eq!(dis, r#"
+%1 = OpTypeInt 32 1
+"#.trim());
+}

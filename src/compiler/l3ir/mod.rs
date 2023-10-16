@@ -19,6 +19,19 @@ pub struct NodeConstant {
     pub value: ConstantValue,
 }
 #[derive(Debug, Clone)]
+pub struct NodeArray {
+    pub elems: Vec<NodeRef>,
+}
+#[derive(Debug, Clone)]
+pub struct NodeIndex {
+    pub array: NodeRef,
+    pub index: NodeRef,
+}
+#[derive(Debug, Clone)]
+pub struct NodeLength {
+    pub array: NodeRef,
+}
+#[derive(Debug, Clone)]
 pub struct NodeInstr {
     pub opcode: NodeRef,
     pub operands: Vec<NodeRef>,
@@ -110,6 +123,9 @@ pub struct NodeBinary {
 #[derive(Clone)]
 pub enum Node {
     Constant(NodeConstant),
+    Array(NodeArray),
+    Index(NodeIndex),
+    Length(NodeLength),
     Instr(NodeInstr),
     Arg(NodeArg),
     Block(NodeBlock),
@@ -127,6 +143,9 @@ pub enum Node {
 }
 def_into_node_ref!(
     Constant,
+    Array,
+    Index,
+    Length,
     Instr,
     Arg,
     Block,
@@ -168,6 +187,36 @@ impl NodeRef {
         let out = match self.as_ref() {
             Node::Constant(_) => {
                 Some(self.clone())
+            },
+            Node::Array(array) => {
+                let elems = array.elems.iter()
+                    .map(|elem| elem.force_transform(lower))
+                    .collect::<Result<Vec<_>>>()?;
+                let node = NodeArray {
+                    elems,
+                }.into_node_ref();
+
+                Some(node)
+            },
+            Node::Index(index) => {
+                let array = index.array.force_transform(lower)?;
+                let index = index.index.force_transform(lower)?;
+
+                let node = NodeIndex {
+                    array,
+                    index,
+                }.into_node_ref();
+
+                Some(node)
+            },
+            Node::Length(length) => {
+                let array = length.array.force_transform(lower)?;
+
+                let node = NodeLength {
+                    array,
+                }.into_node_ref();
+
+                Some(node)
             },
             Node::Instr(instr) => {
                 let opcode = instr.opcode.force_transform(lower)?;
@@ -418,7 +467,7 @@ impl InlineLookups {
                 Some(node)
             },
 
-            Node::Arg(_) | Node::Constant(_) | Node::Layout(_) | Node::Instr(_) | Node::Instantiate(_) | Node::Emit(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) | Node::Binary(_) => {
+            Node::Arg(_) | Node::Constant(_) | Node::Array(_) | Node::Index(_) | Node::Length(_) | Node::Layout(_) | Node::Instr(_) | Node::Instantiate(_) | Node::Emit(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) | Node::Binary(_) => {
                 node.transform(&mut |x| {
                     self.lower(x)
                 })?
@@ -577,6 +626,33 @@ impl EvaluateControlFlow {
                 None
             },
 
+            Node::Index(index) => {
+                let array = self.force_lower(&index.array)?;
+                let array = array.as_array()
+                    .ok_or_else(|| anyhow!("index array must be an array"))?;
+                let index = self.force_lower(&index.index)?
+                    .as_constant()
+                    .and_then(|x| x.value.as_int())
+                    .ok_or_else(|| anyhow!("index must be an int constant"))?;
+
+                let node = array.elems.get(index as usize)
+                    .ok_or_else(|| anyhow!("index out of bounds"))?
+                    .clone();
+
+                Some(node)
+            },
+            Node::Length(length) => {
+                let array = self.force_lower(&length.array)?;
+                let array = array.as_array()
+                    .ok_or_else(|| anyhow!("length array must be an array"))?;
+
+                let node = NodeConstant {
+                    value: ConstantValue::Int(array.elems.len() as i32),
+                }.into_node_ref();
+
+                Some(node)
+            },
+
             Node::IfThenElse(if_then_else) => {
                 let cond = self.force_lower(&if_then_else.cond)?
                     .as_constant()
@@ -647,7 +723,7 @@ impl EvaluateControlFlow {
             },
 
             Node::Define(_) | Node::Lookup(_) | Node::Layout(_) => unreachable!(),
-            Node::Arg(_) | Node::Constant(_) | Node::Instr(_) | Node::Block(_) | Node::Instantiate(_) | Node::Emit(_) => {
+            Node::Arg(_) | Node::Constant(_) | Node::Array(_) | Node::Instr(_) | Node::Block(_) | Node::Instantiate(_) | Node::Emit(_) => {
                 node.transform(&mut |x| {
                     self.lower(x)
                 })?
@@ -810,8 +886,8 @@ impl InstantiateBlocks {
                 Some(node)
             },
 
-            Node::Define(_) | Node::Lookup(_) => unreachable!(),
-            Node::Constant(_) | Node::Instr(_) | Node::Emit(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) | Node::Binary(_) => {
+            Node::Define(_) | Node::Lookup(_) | Node::Index(_) | Node::Length(_) => unreachable!(),
+            Node::Constant(_) | Node::Array(_) | Node::Instr(_) | Node::Emit(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) | Node::Binary(_) => {
                 node.transform(&mut |x| {
                     self.lower(x)
                 })?
@@ -937,7 +1013,7 @@ impl Lower {
         }
 
         match node.as_ref() {
-            Node::Constant(_) | Node::Block(_) | Node::Instr(_) => {},
+            Node::Constant(_) | Node::Array(_) | Node::Block(_) | Node::Instr(_) => {},
             Node::Emit(emit) => {
                 match emit.instr.as_ref() {
                     Node::Instr(instr) => {
@@ -967,7 +1043,7 @@ impl Lower {
                 }
             },
 
-            Node::Define(_) | Node::Lookup(_) | Node::Arg(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) | Node::Binary(_) => unreachable!("{:?}", node),
+            Node::Define(_) | Node::Lookup(_) | Node::Index(_) | Node::Length(_) | Node::Arg(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) | Node::Binary(_) => unreachable!("{:?}", node),
         }
 
         Ok(())
@@ -976,6 +1052,7 @@ impl Lower {
     pub fn lower(&mut self, node: &NodeRef) -> Result<Option<l0ir::IdToken>> {
         let out = match node.as_ref() {
             Node::Constant(_) => None,
+            Node::Array(_) => None,
             Node::Block(_) => None,
             Node::Instr(_) => None,
             Node::Instantiate(instantiate) => {
@@ -1041,7 +1118,7 @@ impl Lower {
                 }
             },
 
-            Node::Define(_) | Node::Lookup(_) | Node::Arg(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) | Node::Binary(_) => unreachable!("{:?}", node),
+            Node::Define(_) | Node::Lookup(_) | Node::Index(_) | Node::Length(_) | Node::Arg(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) | Node::Binary(_) => unreachable!("{:?}", node),
         };
 
         Ok(out)
