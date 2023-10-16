@@ -270,16 +270,13 @@ fn test_argument_lookup() {
 fn test_var_load_store() {
     let var_ = NodeVariable {
         name: "foo".to_string(),
-        is_mutable: false,
+        is_mutable: true,
+        init_value: Some(make_int_constant(0)),
     }.into_node_ref();
     let global_ = NodeInstantiate {
         node: NodeBlock {
             nodes: vec![
                 var_.clone(),
-                NodeStore {
-                    variable: var_.clone(),
-                    value: make_int_constant(0),
-                }.into_node_ref(),
                 NodeStore {
                     variable: var_.clone(),
                     value: make_int_constant(1),

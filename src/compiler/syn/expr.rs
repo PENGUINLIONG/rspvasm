@@ -1,4 +1,4 @@
-use anyhow::{ bail, Result };
+use anyhow::{anyhow, bail, Result };
 use super::{token::*, path::Path, punctuated::Punctuated, block::{Block, BlockHeader}, pat::Pat};
 use crate::{Token, compiler::common::span::Span};
 use super::{ Parse, ParseBuffer };
@@ -460,16 +460,35 @@ impl Parse for Expr {
         } else if input.peek::<Ident>() {
             let path = input.parse::<ExprPath>()?;
             if input.peek::<ParenGroup<()>>() {
+                let args = input.parse::<ParenGroup<ArgumentList>>()?;
                 let span = Span::join([
                     path.span(),
-                    input.span(),
+                    args.span(),
                 ]);
                 let call = ExprCall {
                     expr: Box::new(Self::Path(path)),
-                    args: input.parse::<ParenGroup<ArgumentList>>()?,
+                    args,
                     span,
                 };
                 return Ok(Self::Call(call));
+            } else if input.peek::<Token![=]>() {
+                let ident = path.path.segments.last.clone()
+                    .ok_or_else(|| anyhow!("expected ident ({})", input.surrounding()))?;
+                let eq_token = input.parse::<Token![=]>()?;
+                let expr = input.parse::<Expr>()?;
+                let span = Span::join([
+                    path.span(),
+                    eq_token.span(),
+                    expr.span(),
+                ]);
+
+                let assign = ExprAssign {
+                    ident,
+                    eq_token,
+                    expr: Box::new(expr),
+                    span,
+                };
+                return Ok(Self::Assign(assign));
             } else {
                 return Ok(Self::Path(path));
             }

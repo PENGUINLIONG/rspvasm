@@ -218,11 +218,7 @@ impl LowerToAst {
                 let var_node = NodeVariable {
                     name: name.clone(),
                     is_mutable: local.mut_token.is_some(),
-                }.into_node_ref();
-
-                let store_node = NodeStore {
-                    variable: var_node.clone(),
-                    value,
+                    init_value: Some(value),
                 }.into_node_ref();
 
                 let def_node = NodeDefine {
@@ -233,7 +229,6 @@ impl LowerToAst {
                 }.into_node_ref();
 
                 root_nodes.push(var_node);
-                root_nodes.push(store_node);
                 root_nodes.push(def_node);
                 Ok(None)
             }

@@ -73,6 +73,7 @@ pub struct NodeWhile {
 pub struct NodeVariable {
     pub name: String,
     pub is_mutable: bool,
+    pub init_value: Option<NodeRef>,
 }
 #[derive(Debug, Clone)]
 pub struct NodeLoad {
@@ -157,7 +158,9 @@ impl NodeRef {
         where T: FnMut(&NodeRef) -> Result<Option<NodeRef>>
     {
         lower(self)?
-                .ok_or_else(|| anyhow!("force lower must receive a transformed node"))
+                .ok_or_else(|| {
+                    anyhow!("force lower must receive a transformed node")
+                })
     }
     pub fn transform<T>(&self, lower: &mut T) -> Result<Option<NodeRef>>
         where T: FnMut(&NodeRef) -> Result<Option<NodeRef>>
@@ -274,8 +277,18 @@ impl NodeRef {
 
                 Some(node)
             }
-            Node::Variable(_) => {
-                Some(self.clone())
+            Node::Variable(variable) => {
+                let init_value = variable.init_value.as_ref()
+                    .map(|x| x.force_transform(lower))
+                    .transpose()?;
+
+                let node = NodeVariable {
+                    name: variable.name.clone(),
+                    is_mutable: variable.is_mutable,
+                    init_value,
+                }.into_node_ref();
+
+                Some(node)
             },
             Node::Load(load) => {
                 let variable = load.variable.force_transform(lower)?;
@@ -360,7 +373,9 @@ impl InlineLookups {
 
     fn force_lower(&mut self, node: &NodeRef) -> Result<NodeRef> {
         self.lower(node)?
-            .ok_or_else(|| anyhow!("force lower must receive a transformed node"))
+            .ok_or_else(|| {
+                anyhow!("force lower must receive a transformed node")
+            })
     }
     fn lower(&mut self, node: &NodeRef) -> Result<Option<NodeRef>> {
         if let Some(x) = self.cache.get(&node) {
@@ -501,15 +516,23 @@ impl EvaluateControlFlow {
         }
     }
 
-    pub fn declare(&mut self, variable: &NodeRef) -> Result<()> {
+    pub fn declare(&mut self, variable: &NodeRef, init_value: Option<NodeRef>) -> Result<()> {
         if self.variables.contains_key(&variable) {
             bail!("variable already declared: {:?}", variable);
         }
-        self.variables.insert(variable.clone(), None);
+        self.variables.insert(variable.clone(), init_value);
         Ok(())
     }
 
     pub fn store(&mut self, variable: &NodeRef, value: NodeRef) -> Result<()> {
+        if let Some(variable) = variable.as_variable() {
+            if !variable.is_mutable {
+                bail!("cannot store to immutable variable: {:?}", variable);
+            }
+        } else {
+            bail!("cannot store to non-variable: {:?}", variable);
+        }
+
         if let Some(constant) = self.variables.get_mut(&variable) {
             let _ = constant.insert(value);
             Ok(())
@@ -537,8 +560,11 @@ impl EvaluateControlFlow {
         }
 
         let out = match node.as_ref() {
-            Node::Variable(_) => {
-                self.declare(node)?;
+            Node::Variable(variable) => {
+                let init_value = variable.init_value.as_ref()
+                    .map(|x| self.force_lower(x))
+                    .transpose()?;
+                self.declare(node, init_value)?;
                 None
             },
             Node::Load(load) => {
@@ -720,7 +746,9 @@ impl InstantiateBlocks {
 
     pub fn force_lower(&mut self, node: &NodeRef) -> Result<NodeRef> {
         self.lower(node)?
-            .ok_or_else(|| anyhow!("force lower must receive a transformed node"))
+            .ok_or_else(|| {
+                anyhow!("force lower must receive a transformed node")
+            })
     }
     pub fn lower(&mut self, node: &NodeRef) -> Result<Option<NodeRef>> {
         if let Some(x) = self.cache.get(&node) {
@@ -812,7 +840,9 @@ impl FlattenBlocks {
 
     fn force_lower(&mut self, node: &NodeRef) -> Result<NodeRef> {
         self.lower(node)?
-            .ok_or_else(|| anyhow!("force lower must receive a transformed node"))
+            .ok_or_else(|| {
+                anyhow!("force lower must receive a transformed node: {:?}", node)
+            })
     }
     fn lower(&mut self, node: &NodeRef) -> Result<Option<NodeRef>> {
         if let Some(x) = self.cache.get(&node) {
@@ -1022,6 +1052,7 @@ impl Lower {
         let (node, layouts) = CollectLayouts::apply(&node)?;
         let node = EvaluateControlFlow::apply(&node)?;
         let node = InstantiateBlocks::apply(&node)?;
+        dbg!(&node);
         let node = FlattenBlocks::apply(&node)?;
 
         let mut x = Self::new();
