@@ -161,6 +161,7 @@ impl Parse for ExprBlock {
         } else {
             None
         };
+        dbg!(input.surrounding());
         let block = input.parse::<BraceGroup<Block>>()?;
 
         let span = Span::join([

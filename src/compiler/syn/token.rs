@@ -443,6 +443,17 @@ impl PartialEq for Lit {
 }
 impl std::cmp::Eq for Lit {}
 
+fn is_exactly(s: &str, keyword: &str) -> bool {
+    if !s.starts_with(keyword) {
+        return false;
+    }
+    if let Some(c) = s[keyword.len()..].chars().next() {
+        !c.is_ascii_alphanumeric() && c != '_'
+    } else {
+        true
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Literal {
     pub lit: Lit,
@@ -454,7 +465,7 @@ impl Parse for Literal {
         let lo = input.pos;
         let mut s: &str = input.as_ref();
 
-        if s.starts_with("true") {
+        if is_exactly(s, "true") {
             input.advance_n("true".len());
 
             let hi = input.pos;
@@ -463,7 +474,7 @@ impl Parse for Literal {
                 span: Span { lo, hi },
             };
             return Ok(out);
-        } else if s.starts_with("false") {
+        } else if is_exactly(s, "false") {
             input.advance_n("false".len());
 
             let hi = input.pos;
@@ -578,7 +589,7 @@ impl Peek for Literal {
     fn peek(input: &ParseBuffer) -> bool {
         let s: &str = input.as_ref();
         if let Some(c) = s.chars().next() {
-            c.is_digit(10) || c == '"' || s.starts_with("true") || s.starts_with("false")
+            c.is_digit(10) || c == '"' || is_exactly(s, "true") || is_exactly(s, "false")
         } else {
             false
         }

@@ -2,7 +2,7 @@ use super::*;
 use compiler::Compiler;
 use pretty_assertions::assert_eq;
 
-mod desc_rscs;
+mod desc_set;
 
 const HEADER: &'static str = r#"
 const Op {

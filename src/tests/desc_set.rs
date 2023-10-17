@@ -89,29 +89,28 @@ layout {
     Op::DecorateString = 8,
     Op::MemberDecorateString = 8,
 }
-"#;
 
-#[test]
-fn test_compile_complex_functional() {
-    let code = HEADER.to_string() + r#"
-~Op::Capability(Capability::Shader);
-let glsl_std_450_ = ~Op::ExtInstImport("GLSL.std.450") -> _;
-~Op::MemoryModel(AddressingModel::Logical, MemoryModel::GLSL450);
-
-let void_ = ~Op::TypeVoid -> _;
-let function_void_ = ~Op::TypeFunction(void_) -> _;
+let glsl_450_compute_shader = {
+    ~Op::Capability(Capability::Shader);
+    let glsl_std_450_ = ~Op::ExtInstImport("GLSL.std.450") -> _;
+    ~Op::MemoryModel(AddressingModel::Logical, MemoryModel::GLSL450);
+    glsl_std_450_
+};
 
 let make_block = |body| {
     let label_ = ~Op::Label -> _;
     body();
+    label_
 };
 
 let make_function = |body| {
-    let main_ = ~Op::Function(FunctionControl::None, function_void_) -> void_;
+    let void_ = ~Op::TypeVoid -> _;
+    let function_void_ = ~Op::TypeFunction(void_) -> _;
+    let function_ = ~Op::Function(FunctionControl::None, function_void_) -> void_;
     body();
     ~Op::FunctionEnd;
 
-    main_
+    function_
 };
 
 let make_entry_point = |function, group_size_x, group_size_y, group_size_z| {
@@ -122,11 +121,51 @@ let make_entry_point = |function, group_size_x, group_size_y, group_size_z| {
 let return = {
     ~Op::Return;
 };
+"#;
 
+#[test]
+fn test_if_then_else() {
+    let code = HEADER.to_string() + r#"
+let glsl_std_450_ = glsl_450_compute_shader();
+
+let bool_ = ~Op::TypeBool() -> _;
+let true_ = ~Op::ConstantTrue(bool_) -> _;
+
+let make_if_then_else_block = |condition, then_branch, else_branch| {
+    #[manual]
+    let head_block = make_block(body: {});
+
+    #[manual]
+    let then_block = make_block(body: then_branch);
+
+    #[manual]
+    let else_block = make_block(body: else_branch);
+
+    #[manual]
+    let merge_block = make_block(body: {});
+
+    head_block;
+    ~Op::SelectionMerge(merge_block, SelectionControl::None);
+    ~Op::BranchConditional(condition, then_block, else_block);
+    then_block;
+    ~Op::Branch(merge_block);
+    else_block;
+    ~Op::Branch(merge_block);
+    merge_block;
+
+    head_block
+};
+
+#[manual]
 let main_ = make_function(body: {
-    make_block(body: {
-        return();
-    });
+    make_if_then_else_block(
+        condition: true_,
+        then_branch: {
+        },
+        else_branch: {
+        }
+    );
+    return();
 });
 
 make_entry_point(
