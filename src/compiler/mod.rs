@@ -2,6 +2,7 @@ mod common;
 mod l0ir;
 mod l3ir;
 mod syn;
+mod dsyn;
 
 pub use l0ir::SpirvBinary;
 use syn::{ParseBuffer, stmt::parse_stmts, lower::LowerToAst};
