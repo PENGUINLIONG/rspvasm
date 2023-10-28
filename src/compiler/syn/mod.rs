@@ -130,6 +130,7 @@ impl<P: Peek> Peek for Box<P> {
     }
 }
 
+#[derive(Clone)]
 pub struct ParseBuffer {
     code: Rc<String>,
     beg: usize, // in bytes

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Index};
 use super::{syn::{ParseBuffer, token::{TokenTree, Ident, Punct, Spacing, Literal}, Parse}, common::span::Span};
 use anyhow::{bail, anyhow, Result};
 
@@ -7,7 +7,8 @@ pub enum MatValue {
     Ident(Ident),
     Literal(Literal),
     Punct(Punct),
-    Sequence(Vec<MatValue>),
+    List(Vec<MatValue>),
+    Dict(HashMap<String, MatValue>),
 }
 impl MatValue {
     pub fn as_ident(&self) -> Result<&Ident> {
@@ -28,6 +29,33 @@ impl MatValue {
             _ => bail!("expected punct"),
         }
     }
+    pub fn as_list(&self) -> Result<&Vec<MatValue>> {
+        match self {
+            Self::List(list) => Ok(list),
+            _ => bail!("expected list"),
+        }
+    }
+    pub fn as_dict(&self) -> Result<&HashMap<String, MatValue>> {
+        match self {
+            Self::Dict(dict) => Ok(dict),
+            _ => bail!("expected dict"),
+        }
+    }
+
+    pub fn get(&self, name: &str) -> Option<&MatValue> {
+        match self {
+            Self::Dict(dict) => dict.get(name),
+            _ => None,
+        }
+    }
+    pub fn resolve_path(&self, path: &str) -> Option<&MatValue> {
+        if let Some((cur, remain)) = path.split_once("::") {
+            let cur = self.get(cur)?;
+            cur.resolve_path(remain)
+        } else {
+            self.get(path)
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -35,7 +63,9 @@ pub enum ParType {
     AnyIdent,
     AnyLiteral,
     AnyPunct,
+    Punct(char),
     Sequence(Vec<Par>),
+    Punctuated(Box<Par>, char),
 }
 impl ParType {
     pub fn into_named_par(self, key: &str) -> Par {
@@ -64,82 +94,106 @@ impl From<ParType> for Par {
 }
 
 #[derive(Debug)]
-pub struct ParseContextStackFrame {
-    prefix: Option<String>,
-}
-
-#[derive(Debug)]
 pub struct ParseContext {
     fields: HashMap<String, MatValue>,
-    stack: Vec<ParseContextStackFrame>,
 }
 impl ParseContext {
     pub fn new() -> Self {
         Self {
             fields: HashMap::new(),
-            stack: vec![
-                ParseContextStackFrame {
-                    prefix: Some("".to_string()),
-                },
-            ],
         }
     }
 
-    pub fn get_prefix(&self) -> Option<&str> {
-        if let Some(last) = self.stack.last() {
-            last.prefix.as_ref().map(|x| x.as_str())
-        } else {
-            None
+    pub fn peek(&mut self, par_ty: &ParType, input: &mut ParseBuffer) -> bool {
+        match par_ty {
+            ParType::AnyIdent => input.peek::<Ident>(),
+            ParType::AnyLiteral => input.peek::<Literal>(),
+            ParType::AnyPunct => input.peek::<Punct>(),
+            ParType::Punct(punct) => {
+                input.clone()
+                    .parse::<Punct>()
+                    .map(|x| x.ch == *punct && x.spacing == Spacing::Alone)
+                    .unwrap_or(false)
+            },
+            ParType::Sequence(sequence) => {
+                if let Some(first) = sequence.first() {
+                    self.peek(&first.ty, input)
+                } else {
+                    true
+                }
+            },
+            ParType::Punctuated(par, punct) => {
+                self.peek(&par.ty, input)
+            },
         }
     }
 
-    pub fn push_stack(&mut self, prefix: Option<String>) {
-        self.stack.push(ParseContextStackFrame { prefix });
-    }
-    pub fn pop_stack(&mut self) {
-        self.stack.pop();
-    }
-
-    pub fn parse(&mut self, par: &Par, input: &mut ParseBuffer) -> Result<()> {
-        let key = if let Some(key) = &par.key {
-            if let Some(prefix) = self.get_prefix() {
-                Some(format!("{}::{}", prefix, key))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        let value = match &par.ty {
+    pub fn parse_impl(&mut self, par_ty: &ParType, input: &mut ParseBuffer) -> Result<MatValue> {
+        let out = match par_ty {
             ParType::AnyIdent => {
                 let ident = input.parse::<Ident>()?;
-                Some(MatValue::Ident(ident))
+                MatValue::Ident(ident)
             },
             ParType::AnyLiteral => {
                 let literal = input.parse::<Literal>()?;
-                Some(MatValue::Literal(literal))
+                MatValue::Literal(literal)
             },
             ParType::AnyPunct => {
                 let punct = input.parse::<Punct>()?;
-                Some(MatValue::Punct(punct))
+                MatValue::Punct(punct)
             },
-            ParType::Sequence(sequence) => {
-                self.push_stack(key.clone());
-                for par in sequence {
-                    self.parse(&par, input)?;
+            ParType::Punct(punct) => {
+                let punct2 = input.parse::<Punct>()?;
+                if punct2.ch != *punct || punct2.spacing != Spacing::Alone {
+                    bail!("unexpected punct: {:?}", punct);
                 }
-                self.pop_stack();
-
-                None
+                MatValue::Punct(punct2)
+            }
+            ParType::Sequence(sequence) => {
+                let mut out = HashMap::new();
+                for par in sequence {
+                    let value = self.parse_impl(&par.ty, input)?;
+                    if let Some(key) = &par.key {
+                        out.insert(key.clone(), value);
+                    }
+                }
+                MatValue::Dict(out)
             },
-            
+            ParType::Punctuated(par, punct) => {
+                let mut out = Vec::new();
+                loop {
+                    if !self.peek(&par.ty, input) {
+                        break;
+                    }
+
+                    let mut ctxt = ParseContext::new();
+                    ctxt.parse(par, input)?;
+                    out.push(ctxt.into_mat());
+
+                    if !self.peek(&ParType::Punct(*punct), input) {
+                        break;
+                    }
+
+                    self.parse_impl(&ParType::Punct(*punct), input)?;
+                }
+
+                MatValue::List(out)
+            },
         };
 
-        if let Some((key, value)) = key.zip(value) {
-            self.fields.insert(key, value);
+        Ok(out)
+    }
+    pub fn parse(&mut self, par: &Par, input: &mut ParseBuffer) -> Result<()> {
+        let value = self.parse_impl(&par.ty, input)?;
+        if let Some(key) = &par.key {
+            self.fields.insert(key.clone(), value);
         }
+
         Ok(())
+    }
+
+    pub fn into_mat(self) -> MatValue {
+        MatValue::Dict(self.fields)
     }
 }
 
@@ -162,9 +216,11 @@ mod tests {
                 ty: ParType::AnyIdent,
             };
             ctx.parse(&par, &mut input).unwrap();
-    
-            assert_eq!(ctx.fields.len(), 1);
-            let value = ctx.fields.get("::first_ident").unwrap();
+            let mat = ctx.into_mat();
+
+            let dict = mat.as_dict().unwrap();
+            assert_eq!(dict.len(), 1);
+            let value = dict.get("first_ident").unwrap();
     
             let ident = value.as_ident().unwrap();
             assert_eq!(ident.name, "a");
@@ -180,9 +236,11 @@ mod tests {
                 ty: ParType::AnyLiteral,
             };
             ctx.parse(&par, &mut input).unwrap();
-    
-            assert_eq!(ctx.fields.len(), 1);
-            let value = ctx.fields.get("::first_literal").unwrap();
+            let mat = ctx.into_mat();
+
+            let dict = mat.as_dict().unwrap();
+            assert_eq!(dict.len(), 1);
+            let value = dict.get("first_literal").unwrap();
     
             let literal = value.as_literal().unwrap();
             assert_eq!(literal.lit, Lit::Int(1));
@@ -190,7 +248,7 @@ mod tests {
 
         // Punct.
         {
-            let mut input = ParseBuffer::from("+");
+            let mut input = ParseBuffer::from("=");
             let mut ctx = ParseContext::new();
     
             let par = Par {
@@ -198,12 +256,14 @@ mod tests {
                 ty: ParType::AnyPunct,
             };
             ctx.parse(&par, &mut input).unwrap();
-    
-            assert_eq!(ctx.fields.len(), 1);
-            let value = ctx.fields.get("::first_punct").unwrap();
+            let mat = ctx.into_mat();
+
+            let dict = mat.as_dict().unwrap();
+            assert_eq!(dict.len(), 1);
+            let value = dict.get("first_punct").unwrap();
     
             let punct = value.as_punct().unwrap();
-            assert_eq!(punct.ch, '+');
+            assert_eq!(punct.ch, '=');
             assert_eq!(punct.spacing, Spacing::Alone);
         }
     }
@@ -219,20 +279,18 @@ mod tests {
             ParType::AnyLiteral.into_named_par("first_literal"),
         ]).into_named_par("seq");
         ctx.parse(&par, &mut input).unwrap();
-        println!("{:#?}", ctx);
+        let mat = ctx.into_mat();
 
-        assert_eq!(ctx.fields.len(), 3);
-
-        let value = ctx.fields.get("::seq::first_ident").unwrap();
+        let value = mat.resolve_path("seq::first_ident").unwrap();
         let ident = value.as_ident().unwrap();
         assert_eq!(ident.name, "a");
 
-        let value = ctx.fields.get("::seq::first_punct").unwrap();
+        let value = mat.resolve_path("seq::first_punct").unwrap();
         let punct = value.as_punct().unwrap();
         assert_eq!(punct.ch, '=');
         assert_eq!(punct.spacing, Spacing::Alone);
 
-        let value = ctx.fields.get("::seq::first_literal").unwrap();
+        let value = mat.resolve_path("seq::first_literal").unwrap();
         let literal = value.as_literal().unwrap();
         assert_eq!(literal.lit, Lit::Int(1));
     }
@@ -252,36 +310,94 @@ mod tests {
                 ParType::AnyLiteral.into_named_par("second_literal"),
             ]).into_named_par("second_seq"),
         ]).into_named_par("seq");
+
         ctx.parse(&par, &mut input).unwrap();
-        println!("{:#?}", ctx);
+        let mat = ctx.into_mat();
 
-        assert_eq!(ctx.fields.len(), 6);
-
-        let value = ctx.fields.get("::seq::first_ident").unwrap();
+        let value = mat.resolve_path("seq::first_ident").unwrap();
         let ident = value.as_ident().unwrap();
         assert_eq!(ident.name, "a");
 
-        let value = ctx.fields.get("::seq::first_punct").unwrap();
+        let value = mat.resolve_path("seq::first_punct").unwrap();
         let punct = value.as_punct().unwrap();
         assert_eq!(punct.ch, '=');
         assert_eq!(punct.spacing, Spacing::Alone);
 
-        let value = ctx.fields.get("::seq::first_literal").unwrap();
+        let value = mat.resolve_path("seq::first_literal").unwrap();
         let literal = value.as_literal().unwrap();
         assert_eq!(literal.lit, Lit::Int(1));
 
-        let value = ctx.fields.get("::seq::second_seq::second_ident").unwrap();
+        let value = mat.resolve_path("seq::second_seq::second_ident").unwrap();
         let ident = value.as_ident().unwrap();
         assert_eq!(ident.name, "b");
 
-        let value = ctx.fields.get("::seq::second_seq::second_punct").unwrap();
+        let value = mat.resolve_path("seq::second_seq::second_punct").unwrap();
         let punct = value.as_punct().unwrap();
         assert_eq!(punct.ch, '=');
         assert_eq!(punct.spacing, Spacing::Alone);
 
-        let value = ctx.fields.get("::seq::second_seq::second_literal").unwrap();
+        let value = mat.resolve_path("seq::second_seq::second_literal").unwrap();
         let literal = value.as_literal().unwrap();
         assert_eq!(literal.lit, Lit::Int(2));
+    }
+
+    #[test]
+    fn test_parse_punctuated() {
+        let mut input = ParseBuffer::from("a = 1, b = 2");
+        let mut ctx = ParseContext::new();
+
+        let par = ParType::Punctuated(
+            Box::new(
+                ParType::Sequence(vec![
+                    ParType::AnyIdent.into_named_par("first_ident"),
+                    ParType::AnyPunct.into_named_par("first_punct"),
+                    ParType::AnyLiteral.into_named_par("first_literal"),
+                ]).into_named_par("seq")
+            ),
+            ','
+        ).into_named_par("punctuated");
+
+        ctx.parse(&par, &mut input).unwrap();
+        let mat = ctx.into_mat();
+        let list = mat.get("punctuated").unwrap().as_list().unwrap();
+        assert_eq!(list.len(), 2);
+
+        // First expression.
+        {
+            let mat = list.index(0);
+
+            let value = mat.resolve_path("seq::first_ident").unwrap();
+            let ident = value.as_ident().unwrap();
+            assert_eq!(ident.name, "a");
+
+            let value = mat.resolve_path("seq::first_punct").unwrap();
+            let punct = value.as_punct().unwrap();
+            assert_eq!(punct.ch, '=');
+            assert_eq!(punct.spacing, Spacing::Alone);
+
+            let value = mat.resolve_path("seq::first_literal").unwrap();
+            let literal = value.as_literal().unwrap();
+            assert_eq!(literal.lit, Lit::Int(1));
+        }
+
+        // Second expression.
+        {
+            let mat = list.index(1);
+
+            let value = mat.resolve_path("seq::first_ident").unwrap();
+            let ident = value.as_ident().unwrap();
+            assert_eq!(ident.name, "b");
+
+            let value = mat.resolve_path("seq::first_punct").unwrap();
+            let punct = value.as_punct().unwrap();
+            assert_eq!(punct.ch, '=');
+            assert_eq!(punct.spacing, Spacing::Alone);
+
+            let value = mat.resolve_path("seq::first_literal").unwrap();
+            let literal = value.as_literal().unwrap();
+            assert_eq!(literal.lit, Lit::Int(2));
+        }
+
     }
 
 }
