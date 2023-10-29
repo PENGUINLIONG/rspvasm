@@ -4,6 +4,7 @@ use anyhow::{bail, anyhow, Result};
 
 #[derive(Debug)]
 pub enum MatValue {
+    None,
     Ident(Ident),
     Literal(Literal),
     Punct(Punct),
@@ -11,6 +12,13 @@ pub enum MatValue {
     Dict(HashMap<String, MatValue>),
 }
 impl MatValue {
+    pub fn is_none(&self) -> bool {
+        match self {
+            Self::None => true,
+            _ => false,
+        }
+    }
+
     pub fn as_ident(&self) -> Result<&Ident> {
         match self {
             Self::Ident(ident) => Ok(ident),
@@ -66,6 +74,7 @@ pub enum ParType {
     Ident(String),
     Punct(char),
     Sequence(Vec<Par>),
+    Optional(Box<Par>),
     Punctuated(Box<Par>, char),
 }
 impl ParType {
@@ -129,7 +138,8 @@ impl ParseContext {
                     true
                 }
             },
-            ParType::Punctuated(par, punct) => {
+            ParType::Optional(_) => true,
+            ParType::Punctuated(par, _) => {
                 self.peek(&par.ty, input)
             },
         }
@@ -172,6 +182,13 @@ impl ParseContext {
                     }
                 }
                 MatValue::Dict(out)
+            },
+            ParType::Optional(par) => {
+                if self.peek(&par.ty, input) {
+                    self.parse_impl(&par.ty, input)?
+                } else {
+                    MatValue::None
+                }
             },
             ParType::Punctuated(par, punct) => {
                 let mut out = Vec::new();
