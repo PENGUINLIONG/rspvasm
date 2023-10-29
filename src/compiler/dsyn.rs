@@ -63,6 +63,7 @@ pub enum ParType {
     AnyIdent,
     AnyLiteral,
     AnyPunct,
+    Ident(String),
     Punct(char),
     Sequence(Vec<Par>),
     Punctuated(Box<Par>, char),
@@ -109,6 +110,12 @@ impl ParseContext {
             ParType::AnyIdent => input.peek::<Ident>(),
             ParType::AnyLiteral => input.peek::<Literal>(),
             ParType::AnyPunct => input.peek::<Punct>(),
+            ParType::Ident(ident) => {
+                input.clone()
+                    .parse::<Ident>()
+                    .map(|x| x.name == *ident)
+                    .unwrap_or(false)
+            },
             ParType::Punct(punct) => {
                 input.clone()
                     .parse::<Punct>()
@@ -141,6 +148,13 @@ impl ParseContext {
             ParType::AnyPunct => {
                 let punct = input.parse::<Punct>()?;
                 MatValue::Punct(punct)
+            },
+            ParType::Ident(ident) => {
+                let ident2 = input.parse::<Ident>()?;
+                if ident2.name != *ident {
+                    bail!("unexpected ident: {:?}", ident2);
+                }
+                MatValue::Ident(ident2)
             },
             ParType::Punct(punct) => {
                 let punct2 = input.parse::<Punct>()?;
@@ -400,4 +414,42 @@ mod tests {
 
     }
 
+    #[test]
+    fn test_parse_exact_match() {
+        let mut input = ParseBuffer::from("a = 1");
+        let mut ctx = ParseContext::new();
+
+        let par = ParType::Punctuated(
+            Box::new(
+                ParType::Sequence(vec![
+                    ParType::Ident("a".to_string()).into_named_par("first_ident"),
+                    ParType::Punct('=').into_named_par("first_punct"),
+                    ParType::AnyLiteral.into_named_par("first_literal"),
+                ]).into_named_par("seq")
+            ),
+            ','
+        ).into_named_par("punctuated");
+
+        ctx.parse(&par, &mut input).unwrap();
+        let mat = ctx.into_mat();
+        let list = mat.get("punctuated").unwrap().as_list().unwrap();
+        assert_eq!(list.len(), 1);
+
+        {
+            let mat = list.index(0);
+
+            let value = mat.resolve_path("seq::first_ident").unwrap();
+            let ident = value.as_ident().unwrap();
+            assert_eq!(ident.name, "a");
+
+            let value = mat.resolve_path("seq::first_punct").unwrap();
+            let punct = value.as_punct().unwrap();
+            assert_eq!(punct.ch, '=');
+            assert_eq!(punct.spacing, Spacing::Alone);
+
+            let value = mat.resolve_path("seq::first_literal").unwrap();
+            let literal = value.as_literal().unwrap();
+            assert_eq!(literal.lit, Lit::Int(1));
+        }
+    }
 }
