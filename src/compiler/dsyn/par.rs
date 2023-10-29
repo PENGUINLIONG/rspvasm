@@ -1,70 +1,7 @@
 use std::{collections::HashMap, ops::Index};
-use super::{syn::{ParseBuffer, token::{TokenTree, Ident, Punct, Spacing, Literal}, Parse}, common::span::Span};
+use crate::compiler::{syn::{ParseBuffer, token::{TokenTree, Ident, Punct, Spacing, Literal}, Parse}, common::span::Span};
+use super::mat::Match;
 use anyhow::{bail, anyhow, Result};
-
-#[derive(Debug)]
-pub enum MatValue {
-    None,
-    Ident(Ident),
-    Literal(Literal),
-    Punct(Punct),
-    List(Vec<MatValue>),
-    Dict(HashMap<String, MatValue>),
-}
-impl MatValue {
-    pub fn is_none(&self) -> bool {
-        match self {
-            Self::None => true,
-            _ => false,
-        }
-    }
-
-    pub fn as_ident(&self) -> Result<&Ident> {
-        match self {
-            Self::Ident(ident) => Ok(ident),
-            _ => bail!("expected ident"),
-        }
-    }
-    pub fn as_literal(&self) -> Result<&Literal> {
-        match self {
-            Self::Literal(literal) => Ok(literal),
-            _ => bail!("expected literal"),
-        }
-    }
-    pub fn as_punct(&self) -> Result<&Punct> {
-        match self {
-            Self::Punct(punct) => Ok(punct),
-            _ => bail!("expected punct"),
-        }
-    }
-    pub fn as_list(&self) -> Result<&Vec<MatValue>> {
-        match self {
-            Self::List(list) => Ok(list),
-            _ => bail!("expected list"),
-        }
-    }
-    pub fn as_dict(&self) -> Result<&HashMap<String, MatValue>> {
-        match self {
-            Self::Dict(dict) => Ok(dict),
-            _ => bail!("expected dict"),
-        }
-    }
-
-    pub fn get(&self, name: &str) -> Option<&MatValue> {
-        match self {
-            Self::Dict(dict) => dict.get(name),
-            _ => None,
-        }
-    }
-    pub fn resolve_path(&self, path: &str) -> Option<&MatValue> {
-        if let Some((cur, remain)) = path.split_once("::") {
-            let cur = self.get(cur)?;
-            cur.resolve_path(remain)
-        } else {
-            self.get(path)
-        }
-    }
-}
 
 #[derive(Debug)]
 pub enum ParType {
@@ -97,6 +34,22 @@ pub struct Par {
     key: Option<String>,
     ty: ParType,
 }
+impl Par {
+    pub fn new(key: Option<String>, ty: ParType) -> Self {
+        Self {
+            key,
+            ty,
+        }
+    }
+
+    pub fn parse<P: Into<ParseBuffer>>(&self, input: P) -> Result<Match> {
+        let mut input = input.into();
+        let mut ctx = ParseContext::new();
+        ctx.parse(self, &mut input)?;
+        let mat = ctx.into_mat();
+        Ok(mat)
+    }
+}
 impl From<ParType> for Par {
     fn from(ty: ParType) -> Self {
         ty.into_par()
@@ -105,7 +58,7 @@ impl From<ParType> for Par {
 
 #[derive(Debug)]
 pub struct ParseContext {
-    fields: HashMap<String, MatValue>,
+    fields: HashMap<String, Match>,
 }
 impl ParseContext {
     pub fn new() -> Self {
@@ -145,33 +98,33 @@ impl ParseContext {
         }
     }
 
-    pub fn parse_impl(&mut self, par_ty: &ParType, input: &mut ParseBuffer) -> Result<MatValue> {
+    pub fn parse_impl(&mut self, par_ty: &ParType, input: &mut ParseBuffer) -> Result<Match> {
         let out = match par_ty {
             ParType::AnyIdent => {
                 let ident = input.parse::<Ident>()?;
-                MatValue::Ident(ident)
+                Match::Ident(ident)
             },
             ParType::AnyLiteral => {
                 let literal = input.parse::<Literal>()?;
-                MatValue::Literal(literal)
+                Match::Literal(literal)
             },
             ParType::AnyPunct => {
                 let punct = input.parse::<Punct>()?;
-                MatValue::Punct(punct)
+                Match::Punct(punct)
             },
             ParType::Ident(ident) => {
                 let ident2 = input.parse::<Ident>()?;
                 if ident2.name != *ident {
                     bail!("unexpected ident: {:?}", ident2);
                 }
-                MatValue::Ident(ident2)
+                Match::Ident(ident2)
             },
             ParType::Punct(punct) => {
                 let punct2 = input.parse::<Punct>()?;
                 if punct2.ch != *punct || punct2.spacing != Spacing::Alone {
                     bail!("unexpected punct: {:?}", punct);
                 }
-                MatValue::Punct(punct2)
+                Match::Punct(punct2)
             }
             ParType::Sequence(sequence) => {
                 let mut out = HashMap::new();
@@ -181,13 +134,13 @@ impl ParseContext {
                         out.insert(key.clone(), value);
                     }
                 }
-                MatValue::Dict(out)
+                Match::Dict(out)
             },
             ParType::Optional(par) => {
                 if self.peek(&par.ty, input) {
                     self.parse_impl(&par.ty, input)?
                 } else {
-                    MatValue::None
+                    Match::None
                 }
             },
             ParType::Punctuated(par, punct) => {
@@ -208,7 +161,7 @@ impl ParseContext {
                     self.parse_impl(&ParType::Punct(*punct), input)?;
                 }
 
-                MatValue::List(out)
+                Match::List(out)
             },
         };
 
@@ -223,8 +176,8 @@ impl ParseContext {
         Ok(())
     }
 
-    pub fn into_mat(self) -> MatValue {
-        MatValue::Dict(self.fields)
+    pub fn into_mat(self) -> Match {
+        Match::Dict(self.fields)
     }
 }
 
@@ -239,15 +192,11 @@ mod tests {
     fn test_parse_basic() {
         // Ident.
         {
-            let mut input = ParseBuffer::from("a");
-            let mut ctx = ParseContext::new();
-    
             let par = Par {
                 key: Some("first_ident".to_string()),
                 ty: ParType::AnyIdent,
             };
-            ctx.parse(&par, &mut input).unwrap();
-            let mat = ctx.into_mat();
+            let mat = par.parse("a").unwrap();
 
             let dict = mat.as_dict().unwrap();
             assert_eq!(dict.len(), 1);
@@ -259,15 +208,11 @@ mod tests {
 
         // Literal.
         {
-            let mut input = ParseBuffer::from("1");
-            let mut ctx = ParseContext::new();
-    
             let par = Par {
                 key: Some("first_literal".to_string()),
                 ty: ParType::AnyLiteral,
             };
-            ctx.parse(&par, &mut input).unwrap();
-            let mat = ctx.into_mat();
+            let mat = par.parse("1").unwrap();
 
             let dict = mat.as_dict().unwrap();
             assert_eq!(dict.len(), 1);
@@ -278,16 +223,12 @@ mod tests {
         }
 
         // Punct.
-        {
-            let mut input = ParseBuffer::from("=");
-            let mut ctx = ParseContext::new();
-    
+        {;
             let par = Par {
                 key: Some("first_punct".to_string()),
                 ty: ParType::AnyPunct,
             };
-            ctx.parse(&par, &mut input).unwrap();
-            let mat = ctx.into_mat();
+            let mat = par.parse("=").unwrap();
 
             let dict = mat.as_dict().unwrap();
             assert_eq!(dict.len(), 1);
