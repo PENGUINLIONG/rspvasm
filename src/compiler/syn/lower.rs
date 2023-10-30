@@ -94,7 +94,7 @@ impl LowerToAst {
 
                 let mut operands = Vec::new();
                 if let Some(x) = &emit.operands {
-                    for operand in x.inner.iter() {
+                    for operand in x.iter() {
                         let operand = self.lower_expr(operand)?;
                         operands.push(operand);
                     }
@@ -127,7 +127,7 @@ impl LowerToAst {
                         arg_define_nodes.push(define_node);
                     }
                 }
-                let mut block_node = self.lower_block(&block.block.inner)?;
+                let mut block_node = self.lower_block(&block.block)?;
                 block_node.nodes = arg_define_nodes.into_iter()
                     .chain(block_node.nodes.into_iter())
                     .collect();
@@ -136,7 +136,7 @@ impl LowerToAst {
             }
             Expr::Call(call) => {
                 let mut args = Vec::new();
-                for arg in call.args.inner.args.iter() {
+                for arg in call.args.args.iter() {
                     let arg = self.lower_expr(&arg.value)?;
                     args.push(arg);
                 }
@@ -249,7 +249,7 @@ impl LowerToAst {
                 }
             }
             Stmt::Const(const_) => {
-                for variant in const_.variants.inner.iter() {
+                for variant in const_.variants.iter() {
                     let name = if let Some(stem) = &const_.name {
                         format!("{}::{}", stem.name, variant.ident.name)
                     } else {
@@ -272,7 +272,7 @@ impl LowerToAst {
                 Ok(None)
             }
             Stmt::Layout(layout) => {
-                for entry in layout.entries.inner.iter() {
+                for entry in layout.entries.iter() {
                     if let Some(op) = self.lower_pat(&entry.pat)? {
                         let position = self.lower_expr(&entry.expr)?;
 

@@ -125,7 +125,8 @@ pub struct StmtConst {
     pub meta_list: MetaList,
     pub const_token: Token![const],
     pub name: Option<Ident>,
-    pub variants: BraceGroup<Punctuated<Variant, Token![,]>>,
+    pub brace_group: BraceGroup,
+    pub variants: Punctuated<Variant, Token![,]>,
     pub span: Span,
 }
 impl Parse for StmtConst {
@@ -136,11 +137,13 @@ impl Parse for StmtConst {
         } else {
             None
         };
-        let variants = input.parse::<BraceGroup<Punctuated<Variant, Token![,]>>>()?;
+        let brace_group = input.parse::<BraceGroup>()?;
+        let variants = brace_group.inner.clone().parse::<Punctuated<Variant, Token![,]>>()?;
 
         let span = Span::join([
             const_token.span(),
             name.span(),
+            brace_group.span(),
             variants.span(),
         ]);
 
@@ -148,6 +151,7 @@ impl Parse for StmtConst {
             meta_list: MetaList::default(),
             const_token,
             name,
+            brace_group,
             variants,
             span,
         };
@@ -196,21 +200,25 @@ impl Parse for LayoutEntry {
 pub struct StmtLayout {
     pub meta_list: MetaList,
     pub layout_token: Token![layout],
-    pub entries: BraceGroup<Punctuated<LayoutEntry, Token![,]>>,
+    pub brace_group: BraceGroup,
+    pub entries: Punctuated<LayoutEntry, Token![,]>,
     pub span: Span,
 }
 impl Parse for StmtLayout {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
         let layout_token = input.parse::<Token![layout]>()?;
-        let entries = input.parse::<BraceGroup<Punctuated<LayoutEntry, Token![,]>>>()?;
+        let brace_group = input.parse::<BraceGroup>()?;
+        let entries = brace_group.inner.clone().parse::<Punctuated<LayoutEntry, Token![,]>>()?;
 
         let span = Span::join([
             layout_token.span(),
+            brace_group.span(),
             entries.span(),
         ]);
 
         let out = Self {
             meta_list: MetaList::default(),
+            brace_group,
             layout_token,
             entries,
             span,

@@ -49,10 +49,44 @@ impl Parse for ExprPath {
 }
 
 #[derive(Debug, Clone)]
+pub struct EmitOperandList {
+    pub paren_group: ParenGroup,
+    pub puncutated: Box<Punctuated<Expr, Token![,]>>,
+    pub span: Span,
+}
+impl EmitOperandList {
+    pub fn iter(&self) -> impl Iterator<Item=&Expr> {
+        self.puncutated.iter()
+    }
+}
+impl Parse for EmitOperandList {
+    fn parse(input: &mut ParseBuffer) -> Result<Self> {
+        let paren_group = input.parse::<ParenGroup>()?;
+        let puncutated = paren_group.inner.clone()
+            .parse::<Punctuated<Expr, Token![,]>>()?;
+        let span = Span::join([
+            paren_group.span(),
+            puncutated.span(),
+        ]);
+
+        let out = Self {
+            paren_group,
+            puncutated: Box::new(puncutated),
+            span,
+        };
+        Ok(out)
+    }
+
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ExprEmit {
     pub tilde_token: Token![~],
     pub opcode: Box<Pat>,
-    pub operands: Option<Box<ParenGroup<Punctuated<Expr, Token![,]>>>>,
+    pub operands: Option<EmitOperandList>,
     pub result_type: Option<(Token![->], Box<Pat>)>,
     pub span: Span,
 }
@@ -60,9 +94,9 @@ impl Parse for ExprEmit {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
         let tilde_token = input.parse::<Token![~]>()?;
         let opcode = input.parse::<Pat>()?;
-        let operands = if input.peek::<ParenGroup<()>>() {
-            let group = input.parse::<ParenGroup<Punctuated<Expr, Token![,]>>>()?;
-            Some(Box::new(group))
+        let operands = if input.peek::<ParenGroup>() {
+            let operands = input.parse::<EmitOperandList>()?;
+            Some(operands)
         } else {
             None
         };
@@ -128,15 +162,21 @@ impl Parse for Argument {
 
 #[derive(Debug, Clone)]
 pub struct ArgumentList {
+    pub paren_group: ParenGroup,
     pub args: Box<Punctuated<Argument, Token![,]>>,
     pub span: Span,
 }
 impl Parse for ArgumentList {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
-        let args = input.parse::<Punctuated<Argument, Token![,]>>()?;
-        let span = args.span();
+        let paren_group = input.parse::<ParenGroup>()?;
+        let args = paren_group.inner.clone().parse::<Punctuated<Argument, Token![,]>>()?;
+        let span = Span::join([
+            paren_group.span(),
+            args.span(),
+        ]);
 
         return Ok(Self {
+            paren_group,
             args: Box::new(args),
             span,
         });
@@ -150,7 +190,8 @@ impl Parse for ArgumentList {
 #[derive(Debug, Clone)]
 pub struct ExprBlock {
     pub block_header: Option<BlockHeader>,
-    pub block: BraceGroup<Block>,
+    pub brace_group: BraceGroup,
+    pub block: Block,
     pub span: Span,
 }
 impl Parse for ExprBlock {
@@ -161,16 +202,18 @@ impl Parse for ExprBlock {
         } else {
             None
         };
-        dbg!(input.surrounding());
-        let block = input.parse::<BraceGroup<Block>>()?;
+        let brace_group = input.parse::<BraceGroup>()?;
+        let block = brace_group.inner.clone().parse::<Block>()?;
 
         let span = Span::join([
             block_header.span(),
+            brace_group.span(),
             block.span(),
         ]);
 
         let out = Self {
             block_header,
+            brace_group,
             block,
             span,
         };
@@ -185,7 +228,7 @@ impl Parse for ExprBlock {
 #[derive(Debug, Clone)]
 pub struct ExprCall {
     pub expr: Box<Expr>,
-    pub args: ParenGroup<ArgumentList>,
+    pub args: ArgumentList,
     pub span: Span,
 }
 impl Parse for ExprCall {
@@ -427,16 +470,19 @@ impl Parse for Expr {
             let emit = input.parse::<ExprEmit>()?;
             return Ok(Self::Emit(emit));
         }
-        if input.peek::<Token![|]>() || input.peek::<BraceGroup<()>>() {
+        if input.peek::<Token![|]>() || input.peek::<BraceGroup>() {
             let block = input.parse::<ExprBlock>()?;
-            if input.peek::<ParenGroup<()>>() {
+            if input.peek::<ParenGroup>() {
+                let args = input.parse::<ArgumentList>()?;
+
                 let span = Span::join([
                     block.span(),
                     input.span(),
                 ]);
+
                 let call = ExprCall {
                     expr: Box::new(Self::Block(block)),
-                    args: input.parse::<ParenGroup<ArgumentList>>()?,
+                    args,
                     span,
                 };
                 return Ok(Self::Call(call));
@@ -460,12 +506,14 @@ impl Parse for Expr {
             return Ok(Self::Literal(literal));
         } else if input.peek::<Ident>() {
             let path = input.parse::<ExprPath>()?;
-            if input.peek::<ParenGroup<()>>() {
-                let args = input.parse::<ParenGroup<ArgumentList>>()?;
+            if input.peek::<ParenGroup>() {
+                let args = input.parse::<ArgumentList>()?;
+
                 let span = Span::join([
                     path.span(),
                     args.span(),
                 ]);
+
                 let call = ExprCall {
                     expr: Box::new(Self::Path(path)),
                     args,

@@ -5,21 +5,25 @@ use super::{Parse, token::{Ident, BracketGroup}, ParseBuffer, Peek};
 #[derive(Debug, Clone)]
 pub struct Meta {
     pub hash: Token![#],
-    pub name: BracketGroup<Ident>,
+    pub bracket_group: BracketGroup,
+    pub name: Ident,
     pub span: Span,
 }
 impl Parse for Meta {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
         let hash = input.parse::<Token![#]>()?;
-        let name = input.parse::<BracketGroup<Ident>>()?;
+        let bracket_group = input.parse::<BracketGroup>()?;
+        let name = bracket_group.inner.clone().parse::<Ident>()?;
 
         let span = Span::join([
             hash.span(),
+            bracket_group.span(),
             name.span(),
         ]);
 
         let out = Self {
             hash,
+            bracket_group,
             name,
             span,
         };
@@ -42,7 +46,7 @@ pub struct MetaList {
 }
 impl MetaList {
     pub fn get(&self, name: &str) -> Option<&Meta> {
-        self.metas.iter().find(|meta| meta.name.inner.name == name)
+        self.metas.iter().find(|meta| meta.name.name == name)
     }
     pub fn contains(&self, name: &str) -> bool {
         self.get(name).is_some()

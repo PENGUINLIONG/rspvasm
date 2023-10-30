@@ -298,11 +298,11 @@ impl Peek for Punct {
     }
 }
 
-fn try_parse_group<T: Parse>(
+fn try_parse_group(
     input: &mut ParseBuffer,
     open_char: &str,
     close_char: &str,
-) -> Result<T> {
+) -> Result<ParseBuffer> {
     let s = input.as_ref();
     if s.starts_with(open_char) {
         // Workaround nesting groups.
@@ -329,9 +329,9 @@ fn try_parse_group<T: Parse>(
         while let Some(iclose) = next_close {
             if depth == 0 {
                 let mut content = input.slice(1, iclose);
-                let tokens = T::parse(&mut content)?;
                 input.advance_n(iclose + 1);
-                return Ok(tokens);
+
+                return Ok(content);
             } else {
                 depth -= 1;
                 next_close = s[iclose + 1..].find(close_char).map(|x| x + iclose + 1);
@@ -342,7 +342,7 @@ fn try_parse_group<T: Parse>(
         Err(unexpected_seq!(open_char, input))
     }
 }
-fn try_peek_group<T: Peek>(
+fn try_peek_group(
     input: &ParseBuffer,
     open_char: &str,
 ) -> bool {
@@ -354,15 +354,15 @@ fn try_peek_group<T: Peek>(
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct ParenGroup<T> {
-    pub inner: T,
+#[derive(Debug, Clone)]
+pub struct ParenGroup {
+    pub inner: ParseBuffer,
     pub span: Span,
 }
-impl<T: Parse> Parse for ParenGroup<T> {
+impl Parse for ParenGroup {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
         let lo = input.pos;
-        let inner = try_parse_group::<T>(input, "(", ")")?;
+        let inner = try_parse_group(input, "(", ")")?;
         let hi = input.pos;
         Ok(Self { inner, span: Span { lo, hi } })
     }
@@ -371,21 +371,21 @@ impl<T: Parse> Parse for ParenGroup<T> {
         self.span
     }
 }
-impl<T: Peek> Peek for ParenGroup<T> {
+impl Peek for ParenGroup {
     fn peek(input: &ParseBuffer) -> bool {
-        try_peek_group::<T>(input, "(")
+        try_peek_group(input, "(")
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct BracketGroup<T> {
-    pub inner: T,
+#[derive(Debug, Clone)]
+pub struct BracketGroup {
+    pub inner: ParseBuffer,
     pub span: Span,
 }
-impl<T: Parse> Parse for BracketGroup<T> {
+impl Parse for BracketGroup {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
         let lo = input.pos;
-        let inner = try_parse_group::<T>(input, "[", "]")?;
+        let inner = try_parse_group(input, "[", "]")?;
         let hi = input.pos;
         Ok(Self { inner, span: Span { lo, hi } })
     }
@@ -394,21 +394,21 @@ impl<T: Parse> Parse for BracketGroup<T> {
         self.span
     }
 }
-impl<T: Peek> Peek for BracketGroup<T> {
+impl Peek for BracketGroup {
     fn peek(input: &ParseBuffer) -> bool {
-        try_peek_group::<T>(input, "[")
+        try_peek_group(input, "[")
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct BraceGroup<T> {
-    pub inner: T,
+#[derive(Debug, Clone)]
+pub struct BraceGroup {
+    pub inner: ParseBuffer,
     pub span: Span,
 }
-impl<T: Parse> Parse for BraceGroup<T> {
+impl Parse for BraceGroup {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
         let lo = input.pos;
-        let inner = try_parse_group::<T>(input, "{", "}")?;
+        let inner = try_parse_group(input, "{", "}")?;
         let hi = input.pos;
         Ok(Self { inner, span: Span { lo, hi } })
     }
@@ -417,9 +417,9 @@ impl<T: Parse> Parse for BraceGroup<T> {
         self.span
     }
 }
-impl<T: Peek> Peek for BraceGroup<T> {
+impl Peek for BraceGroup {
     fn peek(input: &ParseBuffer) -> bool {
-        try_peek_group::<T>(input, "{")
+        try_peek_group(input, "{")
     }
 }
 
@@ -705,9 +705,10 @@ mod tests {
     #[test]
     fn test_parse_group() {
         let mut input = ParseBuffer::from("(foo)");
-        let token = input.parse::<ParenGroup<Ident>>().unwrap();
+        let paren_group = input.parse::<ParenGroup>().unwrap();
+        let token = paren_group.inner.clone().parse::<Ident>().unwrap();
         assert!(input.is_empty());
-        assert_eq!(token.inner, Ident {
+        assert_eq!(token, Ident {
             name: "foo".to_string(),
             span: Span { lo: 1, hi: 4 },
         });
