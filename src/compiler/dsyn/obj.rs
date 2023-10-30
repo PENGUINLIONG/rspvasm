@@ -1,6 +1,6 @@
 use std::{rc::Rc, collections::BTreeMap};
 
-use crate::compiler::syn::token::{Spacing};
+use crate::compiler::syn::token::Spacing;
 
 #[derive(Debug, Clone)]
 pub enum Object {

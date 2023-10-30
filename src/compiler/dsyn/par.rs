@@ -1,7 +1,7 @@
-use std::{collections::HashMap, ops::Index};
-use crate::compiler::{syn::{ParseBuffer, token::{TokenTree, Ident, Punct, Spacing, Literal}, Parse}, common::span::Span};
+use std::collections::HashMap;
+use crate::compiler::syn::{ParseBuffer, token::{Ident, Punct, Spacing, Literal}};
 use super::mat::Match;
-use anyhow::{bail, anyhow, Result};
+use anyhow::{bail, Result};
 
 #[derive(Debug)]
 pub enum ParType {
@@ -183,6 +183,8 @@ impl ParseContext {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Index;
+
     use crate::compiler::syn::token::Lit;
 
     use super::*;

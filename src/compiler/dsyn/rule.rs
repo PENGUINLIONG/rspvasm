@@ -3,8 +3,6 @@ use crate::compiler::syn::token::Lit;
 
 use super::{Par, Cmd, Context, ObjectRef, Object, Match, ArrayObject, CompositeObject};
 
-
-
 pub struct Rule {
     par: Par,
     cmds: Vec<Cmd>,
