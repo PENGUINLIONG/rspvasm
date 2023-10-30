@@ -1,6 +1,6 @@
 use super::{Parse, ParseBuffer, Peek};
 use crate::compiler::common::span::Span;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 
 macro_rules! unexpected_seq {
     ($expected:expr, $parse_buf:expr) => {
@@ -13,11 +13,12 @@ macro_rules! unexpected_seq {
 
 pub trait Token : Peek {}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TokenTree {
     Ident(Ident),
     Punct(Punct),
     Literal(Literal),
+    Group(Group),
 }
 impl Parse for TokenTree {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
@@ -36,9 +37,10 @@ impl Parse for TokenTree {
 
     fn span(&self) -> Span {
         match self {
-            TokenTree::Ident(ident) => ident.span,
-            TokenTree::Punct(punct) => punct.span,
-            TokenTree::Literal(literal) => literal.span,
+            TokenTree::Ident(ident) => ident.span(),
+            TokenTree::Punct(punct) => punct.span(),
+            TokenTree::Literal(literal) => literal.span(),
+            TokenTree::Group(group) => group.span(),
         }
     }
 }
@@ -300,126 +302,54 @@ impl Peek for Punct {
 
 fn try_parse_group(
     input: &mut ParseBuffer,
-    open_char: &str,
-    close_char: &str,
-) -> Result<ParseBuffer> {
+) -> Result<(Delimiter, ParseBuffer)> {
     let s = input.as_ref();
-    if s.starts_with(open_char) {
-        // Workaround nesting groups.
-        let mut next_close = s[1..].find(close_char).map(|x| x + 1);
-        let mut next_open = s[1..].find(open_char).map(|x| x + 1);
-        let mut depth = 0;
-        while let (Some(iclose), Some(iopen)) = (next_close, next_open) {
-            if iopen < iclose {
-                // Nested group.
-                depth += 1;
-                next_open = s[iopen + 1..].find(open_char).map(|x| x + iopen + 1);
-            } else {
-                // Close group.
-                if depth == 0 {
-                    next_close = Some(iclose);
-                    break;
-                } else {
-                    depth -= 1;
-                    next_close = s[iclose + 1..].find(close_char).map(|x| x + iclose + 1);
-                }
-            }
-        }
+    let delimiter = s.chars()
+        .next()
+        .ok_or_else(|| unexpected_seq!("group", input))
+        .and_then(Delimiter::from_open_char)
+        .map_err(|_| unexpected_seq!("delimiter", input))?;
 
-        while let Some(iclose) = next_close {
+    // Workaround nesting groups.
+    let mut next_close = s[1..].find(delimiter.close).map(|x| x + 1);
+    let mut next_open = s[1..].find(delimiter.open).map(|x| x + 1);
+    let mut depth = 0;
+    while let (Some(iclose), Some(iopen)) = (next_close, next_open) {
+        if iopen < iclose {
+            // Nested group.
+            depth += 1;
+            next_open = s[iopen + 1..].find(delimiter.open).map(|x| x + iopen + 1);
+        } else {
+            // Close group.
             if depth == 0 {
-                let mut content = input.slice(1, iclose);
-                input.advance_n(iclose + 1);
-
-                return Ok(content);
+                next_close = Some(iclose);
+                break;
             } else {
                 depth -= 1;
-                next_close = s[iclose + 1..].find(close_char).map(|x| x + iclose + 1);
+                next_close = s[iclose + 1..].find(delimiter.close).map(|x| x + iclose + 1);
             }
         }
-        Err(unexpected_seq!(close_char, input))
-    } else {
-        Err(unexpected_seq!(open_char, input))
     }
+
+    while let Some(iclose) = next_close {
+        if depth == 0 {
+            let content = input.slice(1, iclose);
+            input.advance_n(iclose + 1);
+
+            return Ok((delimiter, content));
+        } else {
+            depth -= 1;
+            next_close = s[iclose + 1..].find(delimiter.close).map(|x| x + iclose + 1);
+        }
+    }
+    Err(unexpected_seq!(delimiter.close, input))
 }
-fn try_peek_group(
-    input: &ParseBuffer,
-    open_char: &str,
-) -> bool {
+fn try_peek_group(input: &ParseBuffer) -> bool {
     let s: &str = input.as_ref();
     if let Some(c) = s.chars().next() {
-        c == open_char.chars().next().unwrap()
+        c == '(' || c == '[' || c == '{'
     } else {
         false
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ParenGroup {
-    pub inner: ParseBuffer,
-    pub span: Span,
-}
-impl Parse for ParenGroup {
-    fn parse(input: &mut ParseBuffer) -> Result<Self> {
-        let lo = input.pos;
-        let inner = try_parse_group(input, "(", ")")?;
-        let hi = input.pos;
-        Ok(Self { inner, span: Span { lo, hi } })
-    }
-
-    fn span(&self) -> Span {
-        self.span
-    }
-}
-impl Peek for ParenGroup {
-    fn peek(input: &ParseBuffer) -> bool {
-        try_peek_group(input, "(")
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct BracketGroup {
-    pub inner: ParseBuffer,
-    pub span: Span,
-}
-impl Parse for BracketGroup {
-    fn parse(input: &mut ParseBuffer) -> Result<Self> {
-        let lo = input.pos;
-        let inner = try_parse_group(input, "[", "]")?;
-        let hi = input.pos;
-        Ok(Self { inner, span: Span { lo, hi } })
-    }
-
-    fn span(&self) -> Span {
-        self.span
-    }
-}
-impl Peek for BracketGroup {
-    fn peek(input: &ParseBuffer) -> bool {
-        try_peek_group(input, "[")
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct BraceGroup {
-    pub inner: ParseBuffer,
-    pub span: Span,
-}
-impl Parse for BraceGroup {
-    fn parse(input: &mut ParseBuffer) -> Result<Self> {
-        let lo = input.pos;
-        let inner = try_parse_group(input, "{", "}")?;
-        let hi = input.pos;
-        Ok(Self { inner, span: Span { lo, hi } })
-    }
-
-    fn span(&self) -> Span {
-        self.span
-    }
-}
-impl Peek for BraceGroup {
-    fn peek(input: &ParseBuffer) -> bool {
-        try_peek_group(input, "{")
     }
 }
 
@@ -593,6 +523,187 @@ impl Peek for Literal {
         } else {
             false
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Delimiter {
+    open: char,
+    close: char,
+}
+impl Delimiter {
+    pub fn new(open: char, close: char) -> Result<Self> {
+        match open {
+            '(' => debug_assert_eq!(close, ')'),
+            '[' => debug_assert_eq!(close, ']'),
+            '{' => debug_assert_eq!(close, '}'),
+            _ => bail!("invalid delimiter pair `{}` and `{}`", open, close),
+        }
+        let out = Self { open, close };
+        Ok(out)
+    }
+    pub fn from_open_char(open: char) -> Result<Self> {
+        let out = match open {
+            '(' => Self { open: '(', close: ')' },
+            '[' => Self { open: '[', close: ']' },
+            '{' => Self { open: '{', close: '}' },
+            _ => bail!("invalid delimiter open char `{}`", open),
+        };
+        Ok(out)
+    }
+
+    pub fn is_paren(&self) -> bool {
+        self.open == '('
+    }
+    pub fn is_bracket(&self) -> bool {
+        self.open == '['
+    }
+    pub fn is_brace(&self) -> bool {
+        self.open == '{'
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Group {
+    pub delimiter: Delimiter,
+    pub inner: ParseBuffer,
+    pub span: Span,
+}
+impl Group {
+    pub fn is_paren(&self) -> bool {
+        self.delimiter.is_paren()
+    }
+    pub fn is_bracket(&self) -> bool {
+        self.delimiter.is_bracket()
+    }
+    pub fn is_brace(&self) -> bool {
+        self.delimiter.is_brace()
+    }
+}
+impl Token for Group {}
+impl Parse for Group {
+    fn parse(input: &mut ParseBuffer) -> Result<Self> {
+        let lo = input.pos;
+        let (delimiter, inner) = try_parse_group(input)?;
+        let hi = input.pos;
+
+        let out = Self {
+            delimiter,
+            inner,
+            span: Span { lo, hi },
+        };
+        Ok(out)
+    }
+
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+impl Peek for Group {
+    fn peek(input: &ParseBuffer) -> bool {
+        try_peek_group(input)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ParenGroup(Group);
+impl Parse for ParenGroup {
+    fn parse(input: &mut ParseBuffer) -> Result<Self> {
+        let group = input.parse::<Group>()?;
+        if !group.is_paren() {
+            Err(unexpected_seq!("paren group", input))
+        } else {
+            let out = Self(group);
+            Ok(out)
+        }
+    }
+
+    fn span(&self) -> Span {
+        self.0.span()
+    }
+}
+impl Peek for ParenGroup {
+    fn peek(input: &ParseBuffer) -> bool {
+        let s: &str = input.as_ref();
+        if let Some(c) = s.chars().next() {
+            c == '('
+        } else {
+            false
+        }
+    }
+}
+impl std::ops::Deref for ParenGroup {
+    type Target = Group;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BracketGroup(Group);
+impl Parse for BracketGroup {
+    fn parse(input: &mut ParseBuffer) -> Result<Self> {
+        let group = input.parse::<Group>()?;
+        if !group.is_bracket() {
+            Err(unexpected_seq!("bracket group", input))
+        } else {
+            let out = Self(group);
+            Ok(out)
+        }
+    }
+
+    fn span(&self) -> Span {
+        self.0.span()
+    }
+}
+impl Peek for BracketGroup {
+    fn peek(input: &ParseBuffer) -> bool {
+        let s: &str = input.as_ref();
+        if let Some(c) = s.chars().next() {
+            c == '['
+        } else {
+            false
+        }
+    }
+}
+impl std::ops::Deref for BracketGroup {
+    type Target = Group;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BraceGroup(Group);
+impl Parse for BraceGroup {
+    fn parse(input: &mut ParseBuffer) -> Result<Self> {
+        let group = input.parse::<Group>()?;
+        if !group.is_brace() {
+            Err(unexpected_seq!("brace group", input))
+        } else {
+            let out = Self(group);
+            Ok(out)
+        }
+    }
+
+    fn span(&self) -> Span {
+        self.0.span()
+    }
+}
+impl Peek for BraceGroup {
+    fn peek(input: &ParseBuffer) -> bool {
+        let s: &str = input.as_ref();
+        if let Some(c) = s.chars().next() {
+            c == '{'
+        } else {
+            false
+        }
+    }
+}
+impl std::ops::Deref for BraceGroup {
+    type Target = Group;
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 

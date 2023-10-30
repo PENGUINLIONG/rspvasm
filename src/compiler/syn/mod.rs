@@ -221,3 +221,8 @@ impl fmt::Debug for ParseBuffer {
         f.write_str(&self.code[self.pos..self.end])
     }
 }
+impl PartialEq for ParseBuffer {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_ref() == other.as_ref()
+    }
+}
