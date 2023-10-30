@@ -37,10 +37,10 @@ impl Parse for TokenTree {
 
     fn span(&self) -> Span {
         match self {
-            TokenTree::Ident(ident) => ident.span(),
-            TokenTree::Punct(punct) => punct.span(),
-            TokenTree::Literal(literal) => literal.span(),
-            TokenTree::Group(group) => group.span(),
+            TokenTree::Ident(ident) => ident.span,
+            TokenTree::Punct(punct) => punct.span,
+            TokenTree::Literal(literal) => literal.span,
+            TokenTree::Group(group) => group.span,
         }
     }
 }
