@@ -1,6 +1,9 @@
 use anyhow::{anyhow, bail, Result};
 use spirv::BuiltIn;
-use std::{collections::{HashMap, hash_map::Entry}, rc::Rc};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    rc::Rc,
+};
 
 macro_rules! def_into_type_ref {
     ($($name:ident,)+) => {
@@ -59,9 +62,7 @@ pub struct TypeRef {
 }
 impl TypeRef {
     pub fn new(ty: Type) -> Self {
-        Self {
-            inner: Rc::new(ty),
-        }
+        Self { inner: Rc::new(ty) }
     }
     pub fn as_ref(&self) -> &Type {
         self.inner.as_ref()
@@ -134,17 +135,7 @@ pub enum Type {
     Adt(TypeAdt),
     Generic(TypeGeneric),
 }
-def_into_type_ref!(
-    Void,
-    Bool,
-    Int,
-    Float,
-    Instr,
-    IdRef,
-    Block,
-    Adt,
-    Generic,
-);
+def_into_type_ref!(Void, Bool, Int, Float, Instr, IdRef, Block, Adt, Generic,);
 impl TypeRef {
     pub fn name(&self) -> &str {
         match self.as_ref() {
@@ -174,13 +165,15 @@ impl TypeRef {
                 let out = TypeAdt {
                     name: x.name.clone(),
                     fields,
-                }.into_type_ref();
+                }
+                .into_type_ref();
 
                 out
             }
             Type::Generic(x) => {
                 let generic_name = &x.name;
-                let arg_ty = generic_args.get(generic_name)
+                let arg_ty = generic_args
+                    .get(generic_name)
                     .ok_or_else(|| anyhow!("generic type {} is not specified", generic_name))?;
 
                 arg_ty.clone()
@@ -213,7 +206,7 @@ impl TypeRegistry {
             Entry::Vacant(e) => {
                 let out = e.insert(ty).clone();
                 Ok(out)
-            },
+            }
         }
     }
 
@@ -221,37 +214,44 @@ impl TypeRegistry {
         // Void type.
         let void_ty = TypeVoid {
             name: "__Void".to_string(),
-        }.into_type_ref();
+        }
+        .into_type_ref();
 
         // Bool type.
         let bool_ty = TypeBool {
             name: "__Bool".to_string(),
-        }.into_type_ref();
+        }
+        .into_type_ref();
 
         // Int type.
         let int_ty = TypeInt {
             name: "__Int".to_string(),
-        }.into_type_ref();
+        }
+        .into_type_ref();
 
         // Float type.
         let float_ty = TypeFloat {
             name: "__Float".to_string(),
-        }.into_type_ref();
+        }
+        .into_type_ref();
 
         // Instr type.
         let instr_ty = TypeInstr {
             name: "__Instr".to_string(),
-        }.into_type_ref();
+        }
+        .into_type_ref();
 
         // IdRef type.
         let idref_ty = TypeIdRef {
             name: "__IdRef".to_string(),
-        }.into_type_ref();
+        }
+        .into_type_ref();
 
         // Block type.
         let block_ty = TypeBlock {
             name: "__Block".to_string(),
-        }.into_type_ref();
+        }
+        .into_type_ref();
 
         let out = Self {
             types: HashMap::new(),

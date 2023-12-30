@@ -1,4 +1,4 @@
-use std::{rc::Rc, collections::BTreeMap};
+use std::{collections::BTreeMap, rc::Rc};
 
 use crate::compiler::syn::token::Spacing;
 
@@ -33,9 +33,7 @@ pub struct ArrayObject {
 }
 impl ArrayObject {
     pub fn new() -> Self {
-        Self {
-            items: Vec::new(),
-        }
+        Self { items: Vec::new() }
     }
 
     pub fn push(&mut self, obj: ObjectRef) {

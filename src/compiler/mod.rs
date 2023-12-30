@@ -1,14 +1,13 @@
 mod common;
+mod dsyn;
 mod l0ir;
 mod l3ir;
 mod syn;
-mod dsyn;
 
 pub use l0ir::SpirvBinary;
-use syn::{ParseBuffer, stmt::parse_stmts, lower::LowerToAst};
+use syn::{lower::LowerToAst, stmt::parse_stmts, ParseBuffer};
 
-pub struct Compiler {
-}
+pub struct Compiler {}
 impl Compiler {
     pub fn compile(code: &str) -> SpirvBinary {
         let mut input = ParseBuffer::from(code.as_ref());

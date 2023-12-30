@@ -1,6 +1,9 @@
+use super::{
+    token::{BracketGroup, Ident},
+    Parse, ParseBuffer, Peek,
+};
+use crate::{compiler::common::span::Span, Token};
 use anyhow::Result;
-use crate::{Token, compiler::common::span::Span};
-use super::{Parse, token::{Ident, BracketGroup}, ParseBuffer, Peek};
 
 #[derive(Debug, Clone)]
 pub struct Meta {
@@ -15,11 +18,7 @@ impl Parse for Meta {
         let bracket_group = input.parse::<BracketGroup>()?;
         let name = bracket_group.inner.clone().parse::<Ident>()?;
 
-        let span = Span::join([
-            hash.span(),
-            bracket_group.span(),
-            name.span(),
-        ]);
+        let span = Span::join([hash.span(), bracket_group.span(), name.span()]);
 
         let out = Self {
             hash,
@@ -60,9 +59,7 @@ impl Parse for MetaList {
             metas.push(meta);
         }
 
-        let out = Self {
-            metas,
-        };
+        let out = Self { metas };
         Ok(out)
     }
 

@@ -1,5 +1,8 @@
-use std::{io::{self, Write}, fs};
 use clap::Parser;
+use std::{
+    fs,
+    io::{self, Write},
+};
 
 mod compiler;
 mod interp;
@@ -18,7 +21,7 @@ struct Arguments {
 
 fn main() {
     let args = Arguments::parse();
-    
+
     let code = std::fs::read_to_string(&args.input).unwrap();
 
     let spirv = compiler::Compiler::compile(&code);
@@ -32,11 +35,10 @@ fn main() {
             .unwrap();
         io::BufWriter::new(f)
     };
-    let bytes = spirv.to_words()
+    let bytes = spirv
+        .to_words()
         .iter()
-        .flat_map(|x| {
-            x.to_le_bytes()
-        })
+        .flat_map(|x| x.to_le_bytes())
         .collect::<Vec<_>>();
 
     w.write_all(&bytes).unwrap();

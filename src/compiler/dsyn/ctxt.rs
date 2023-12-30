@@ -55,29 +55,29 @@ impl Context {
         self.state_dict.insert(name, value);
     }
     pub fn get_state(&mut self, name: &str) -> Result<&ObjectRef> {
-        self.state_dict.get(name)
+        self.state_dict
+            .get(name)
             .ok_or_else(|| anyhow!("Unknown state variable {}", name))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::compiler::dsyn::{ParType, Rule, Object};
+    use crate::compiler::dsyn::{Object, ParType, Rule};
 
     use super::*;
 
     #[test]
     fn test_rule_conversion_simple() {
         let par = ParType::Sequence(vec![
-            ParType::Ident("x".to_string()).into_named_par("command"),
-        ]).into_named_par("__");
-        let cmds = vec![
-            Cmd::Print(CmdPrint {
-                value: Box::new(Cmd::Constant(CmdConstant {
-                    value: ObjectRef::new(Object::Ident("x".to_string())),
-                })),
-            }),
-        ];
+            ParType::Ident("x".to_string()).into_named_par("command")
+        ])
+        .into_named_par("__");
+        let cmds = vec![Cmd::Print(CmdPrint {
+            value: Box::new(Cmd::Constant(CmdConstant {
+                value: ObjectRef::new(Object::Ident("x".to_string())),
+            })),
+        })];
         let rule = Rule::new(par, cmds);
 
         let mut ctxt = Context {

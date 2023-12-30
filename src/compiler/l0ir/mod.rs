@@ -4,8 +4,8 @@
 //! language structure and ID references are concrete numbers.
 use std::{collections::HashMap, rc::Rc};
 
-use ordered_float::OrderedFloat;
 use num_traits::cast::FromPrimitive;
+use ordered_float::OrderedFloat;
 
 #[cfg(test)]
 mod tests;
@@ -63,23 +63,30 @@ impl Instr {
         }
         out.extend(self.operands.iter().cloned());
         let len = out.len() as u32;
-        assert!(len <= u16::MAX as u32, "instruction length must be less than u16::MAX (65535)");
+        assert!(
+            len <= u16::MAX as u32,
+            "instruction length must be less than u16::MAX (65535)"
+        );
         out[0] |= len << 16;
         out
     }
 }
 impl std::fmt::Debug for Instr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let result_id = self.result_id
+        let result_id = self
+            .result_id
             .map(|x| format!("%{} =\t", x))
             .unwrap_or_else(|| "\t".to_string());
-        let result_type = self.result_type
+        let result_type = self
+            .result_type
             .map(|x| format!("%{}", x))
             .unwrap_or_else(|| "()".to_string());
         let op = spirv::Op::from_u16(self.opcode)
             .map(|x| format!("{:?}", x))
             .unwrap_or_else(|| self.opcode.to_string());
-        let operands = self.operands.iter()
+        let operands = self
+            .operands
+            .iter()
             .map(|x| x.to_string())
             .collect::<Vec<_>>()
             .join(", ");
@@ -175,7 +182,6 @@ impl SpirvHeader {
     }
 }
 
-
 #[derive(Clone)]
 pub struct InstrContext {
     pub version: u32,
@@ -202,8 +208,7 @@ impl InstrContext {
 
     pub fn sort_by_layouts(&mut self, layouts: HashMap<u32, f32>) {
         self.instrs.sort_by_key(|x| {
-            let position = layouts.get(&(x.opcode as u32))
-                .unwrap_or(&f32::MAX);
+            let position = layouts.get(&(x.opcode as u32)).unwrap_or(&f32::MAX);
             OrderedFloat(*position)
         });
     }
@@ -221,7 +226,9 @@ impl Default for InstrContext {
 }
 impl std::fmt::Debug for InstrContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut instrs = self.instrs.iter()
+        let mut instrs = self
+            .instrs
+            .iter()
             .map(|x| format!("{:?}", x))
             .collect::<Vec<_>>();
         instrs.sort();
@@ -254,14 +261,16 @@ impl SpirvBinary {
 
     #[cfg(test)]
     pub(crate) fn disassemble(&self) -> String {
-        use rspirv::binary::Disassemble;
+        use spirq_spvasm::{Disassembler, SpirvBinary};
         let words = self.to_words();
 
-        let mut d = rspirv::dr::Loader::new();
-        rspirv::binary::parse_words(words, &mut d).unwrap();
-        let mut module = d.module();
-        module.header = None;
-        module.disassemble()
+        let spv = SpirvBinary::from(words);
+        let spvasm = Disassembler::new()
+            .indent(false)
+            .print_header(false)
+            .disassemble(&spv)
+            .unwrap();
+        spvasm
     }
 }
 impl From<InstrContext> for SpirvBinary {

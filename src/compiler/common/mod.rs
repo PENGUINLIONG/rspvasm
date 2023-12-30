@@ -1,4 +1,4 @@
-use std::{rc::Rc, collections::HashMap};
+use std::{collections::HashMap, rc::Rc};
 
 pub mod span;
 
@@ -181,7 +181,6 @@ impl ConstantValue {
     }
 }
 
-
 #[derive(Clone)]
 pub struct NodeRef<Node> {
     inner: Rc<Node>,
@@ -224,7 +223,11 @@ impl<Node> std::hash::Hash for NodeRef<Node> {
 }
 impl<Node: std::fmt::Debug> std::fmt::Debug for NodeRef<Node> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let attrs = self.attrs.iter().map(|(k, v)| format!(", {}={:?}", k, v)).collect::<String>();
+        let attrs = self
+            .attrs
+            .iter()
+            .map(|(k, v)| format!(", {}={:?}", k, v))
+            .collect::<String>();
         f.write_str(format!("({:?}{}) ", self.inner.as_ref() as *const Node, attrs).as_str())?;
         self.inner.as_ref().fmt(f)
     }

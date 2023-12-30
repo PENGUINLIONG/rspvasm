@@ -1,6 +1,12 @@
+use crate::compiler::{
+    common::span::Span,
+    syn::{
+        token::{Ident, Literal, Punct, Spacing, TokenTree},
+        Parse, ParseBuffer,
+    },
+};
+use anyhow::{anyhow, bail, Result};
 use std::{collections::HashMap, ops::Index};
-use crate::compiler::{syn::{ParseBuffer, token::{TokenTree, Ident, Punct, Spacing, Literal}, Parse}, common::span::Span};
-use anyhow::{bail, anyhow, Result};
 
 #[derive(Debug)]
 pub enum Match {

@@ -1,18 +1,18 @@
-use std::{rc::Rc, fmt};
+use std::{fmt, rc::Rc};
 
 use anyhow::Result;
 
 use super::common::span::{Span, SpanBuilder};
 
-pub mod token;
-pub mod punctuated;
+pub mod block;
 pub mod expr;
+pub mod lower;
+pub mod meta;
 pub mod pat;
 pub mod path;
+pub mod punctuated;
 pub mod stmt;
-pub mod block;
-pub mod meta;
-pub mod lower;
+pub mod token;
 
 pub trait Parse {
     fn parse(input: &mut ParseBuffer) -> Result<Self>
@@ -154,9 +154,7 @@ impl ParseBuffer {
     fn trim_start(&mut self) {
         // Skip whitespace chars.
         let s = self.as_ref();
-        let offset = s.bytes()
-            .take_while(u8::is_ascii_whitespace)
-            .count();
+        let offset = s.bytes().take_while(u8::is_ascii_whitespace).count();
         self.pos += offset;
     }
 

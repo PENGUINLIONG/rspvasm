@@ -1,9 +1,9 @@
-use anyhow::Result;
-use crate::Token;
 use crate::compiler::common::span::Span;
+use crate::Token;
+use anyhow::Result;
 
-use super::{ token::*, path::Path };
-use super::{ Parse, ParseBuffer };
+use super::{path::Path, token::*};
+use super::{Parse, ParseBuffer};
 
 #[derive(Debug, Clone)]
 pub struct PatLiteral {
@@ -15,10 +15,7 @@ impl Parse for PatLiteral {
         let literal = input.parse::<Literal>()?;
         let span = literal.span();
 
-        let out = Self {
-            literal,
-            span,
-        };
+        let out = Self { literal, span };
         Ok(out)
     }
 
@@ -37,10 +34,7 @@ impl Parse for PatPath {
         let path = input.parse::<Path>()?;
         let span = path.span;
 
-        let out = Self {
-            path,
-            span,
-        };
+        let out = Self { path, span };
         Ok(out)
     }
 
@@ -59,7 +53,10 @@ impl Parse for PatUnderscore {
         let underscore_token = input.parse::<Token![_]>()?;
         let span = underscore_token.span;
 
-        Ok(Self { underscore_token, span })
+        Ok(Self {
+            underscore_token,
+            span,
+        })
     }
 
     fn span(&self) -> Span {

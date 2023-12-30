@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, Result};
 use clap::parser::IdsRef;
 use num_traits::ToBytes;
-use std::{collections::HashMap, io::{BufWriter}, fmt::Write, rc::Rc};
+use std::{collections::HashMap, fmt::Write, io::BufWriter, rc::Rc};
 
 #[derive(Debug, Clone)]
 struct Object {
@@ -40,19 +40,19 @@ impl Atom {
             Atom::Int(x) => {
                 let bytes = x.to_ne_bytes();
                 bytes_to_words(&bytes, words);
-            },
+            }
             Atom::Float(x) => {
                 let bytes = x.to_ne_bytes();
                 bytes_to_words(&bytes, words);
-            },
+            }
             Atom::String(x) => {
                 let mut bytes = x.as_bytes().to_vec();
                 bytes.push(0);
                 bytes_to_words(&bytes, words);
-            },
+            }
             Atom::IdRef(x) => {
                 words.push(*x);
-            },
+            }
             Atom::Object(x) => bail!("cannot push Object to words"),
         };
 
@@ -167,9 +167,7 @@ pub struct IdContext {
 }
 impl IdContext {
     pub fn new() -> Self {
-        Self {
-            counter: 1,
-        }
+        Self { counter: 1 }
     }
 
     pub fn alloc(&mut self) -> IdRef {
@@ -213,9 +211,7 @@ impl<'a, W: Write> Interpreter<'a, W> {
 
     pub fn interpret_func(&mut self, func: &Func) -> Result<()> {
         let out = match func {
-            Func::Atom { atom } => {
-                atom.clone()
-            },
+            Func::Atom { atom } => atom.clone(),
             Func::Print { args } => {
                 let depth = self.push();
                 for arg in args.iter() {
@@ -250,8 +246,13 @@ impl<'a, W: Write> Interpreter<'a, W> {
                 }
 
                 Atom::None
-            },
-            Func::Emit { op, operands, has_result_id, result_type } => {
+            }
+            Func::Emit {
+                op,
+                operands,
+                has_result_id,
+                result_type,
+            } => {
                 let mut has_result_type = false;
 
                 let depth = self.push();
@@ -271,12 +272,8 @@ impl<'a, W: Write> Interpreter<'a, W> {
                     assert!(x >= 0 && x <= u16::MAX as i32);
                     x as u16
                 };
-                let result_id = has_result_id.then(|| {
-                    self.alloc_id()
-                });
-                let result_type = has_result_type.then(|| {
-                    args.next().unwrap().to_idref().unwrap()
-                });
+                let result_id = has_result_id.then(|| self.alloc_id());
+                let result_type = has_result_type.then(|| args.next().unwrap().to_idref().unwrap());
 
                 let mut operands = Vec::new();
                 for arg in args {
@@ -297,7 +294,7 @@ impl<'a, W: Write> Interpreter<'a, W> {
                 } else {
                     Atom::None
                 }
-            },
+            }
             Func::Store { name, value } => {
                 let depth = self.push();
                 self.interpret_func(value)?;
@@ -308,14 +305,20 @@ impl<'a, W: Write> Interpreter<'a, W> {
                 self.states.insert(name.clone(), value);
 
                 Atom::None
-            },
+            }
             Func::Load { name } => {
-                let value = self.states.get(name)
+                let value = self
+                    .states
+                    .get(name)
                     .ok_or_else(|| anyhow!("name not found: {}", name))?
                     .clone();
                 value
-            },
-            Func::Binary { binary_op, arg0, arg1 } => {
+            }
+            Func::Binary {
+                binary_op,
+                arg0,
+                arg1,
+            } => {
                 let depth = self.push();
                 self.interpret_func(arg0)?;
                 self.interpret_func(arg1)?;
@@ -325,17 +328,11 @@ impl<'a, W: Write> Interpreter<'a, W> {
                 let arg1 = args.remove(0);
 
                 match binary_op {
-                    BinaryOp::Add => {
-                        match (&arg0, &arg1) {
-                            (Atom::Int(x), Atom::Int(y)) => {
-                                Atom::Int(x + y)
-                            }
-                            (Atom::Float(x), Atom::Float(y)) => {
-                                Atom::Float(x + y)
-                            }
-                            _ => bail!("cannot add {:?} and {:?}", arg0, arg1),
-                        }
-                    }
+                    BinaryOp::Add => match (&arg0, &arg1) {
+                        (Atom::Int(x), Atom::Int(y)) => Atom::Int(x + y),
+                        (Atom::Float(x), Atom::Float(y)) => Atom::Float(x + y),
+                        _ => bail!("cannot add {:?} and {:?}", arg0, arg1),
+                    },
                     _ => unimplemented!(),
                 }
             }
@@ -366,11 +363,21 @@ mod tests {
 
         let func = Func::Print {
             args: vec![
-                Func::Atom { atom: Atom::Bool(true) },
-                Func::Atom { atom: Atom::Bool(false) },
-                Func::Atom { atom: Atom::Int(123) },
-                Func::Atom { atom: Atom::Float(1.5) },
-                Func::Atom { atom: Atom::String("abc".to_string()) },
+                Func::Atom {
+                    atom: Atom::Bool(true),
+                },
+                Func::Atom {
+                    atom: Atom::Bool(false),
+                },
+                Func::Atom {
+                    atom: Atom::Int(123),
+                },
+                Func::Atom {
+                    atom: Atom::Float(1.5),
+                },
+                Func::Atom {
+                    atom: Atom::String("abc".to_string()),
+                },
             ],
         };
 
@@ -380,7 +387,8 @@ false
 123
 1.5
 abc
-".trim_start();
+"
+        .trim_start();
         interp.interpret_func(&func).unwrap();
         assert_eq!(expect, log);
     }
@@ -393,18 +401,21 @@ abc
         let func = vec![
             Func::Store {
                 name: "x".to_string(),
-                value: Box::new(Func::Atom { atom: Atom::Int(123) }),
+                value: Box::new(Func::Atom {
+                    atom: Atom::Int(123),
+                }),
             },
             Func::Print {
-                args: vec![
-                    Func::Load { name: "x".to_string() },
-                ],
+                args: vec![Func::Load {
+                    name: "x".to_string(),
+                }],
             },
         ];
 
         let expect = r"
 123
-".trim_start();
+"
+        .trim_start();
         interp.interpret_func_seq(&func).unwrap();
         assert_eq!(expect, log);
     }

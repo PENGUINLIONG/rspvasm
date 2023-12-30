@@ -1,8 +1,13 @@
-use anyhow::{anyhow, bail, Result };
-use super::{token::*, path::Path, punctuated::Punctuated, block::{Block, BlockHeader}, pat::Pat};
-use crate::{Token, compiler::common::span::Span};
-use super::{ Parse, ParseBuffer };
-
+use super::{
+    block::{Block, BlockHeader},
+    pat::Pat,
+    path::Path,
+    punctuated::Punctuated,
+    token::*,
+};
+use super::{Parse, ParseBuffer};
+use crate::{compiler::common::span::Span, Token};
+use anyhow::{anyhow, bail, Result};
 
 #[derive(Debug, Clone)]
 pub struct ExprLiteral {
@@ -14,10 +19,7 @@ impl Parse for ExprLiteral {
         let literal = input.parse::<Literal>()?;
         let span = literal.span();
 
-        let out = Self {
-            literal,
-            span,
-        };
+        let out = Self { literal, span };
         Ok(out)
     }
 
@@ -36,10 +38,7 @@ impl Parse for ExprPath {
         let path = input.parse::<Path>()?;
         let span = path.span;
 
-        let out = Self {
-            path,
-            span,
-        };
+        let out = Self { path, span };
         Ok(out)
     }
 
@@ -55,19 +54,18 @@ pub struct EmitOperandList {
     pub span: Span,
 }
 impl EmitOperandList {
-    pub fn iter(&self) -> impl Iterator<Item=&Expr> {
+    pub fn iter(&self) -> impl Iterator<Item = &Expr> {
         self.puncutated.iter()
     }
 }
 impl Parse for EmitOperandList {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
         let paren_group = input.parse::<ParenGroup>()?;
-        let puncutated = paren_group.inner.clone()
+        let puncutated = paren_group
+            .inner
+            .clone()
             .parse::<Punctuated<Expr, Token![,]>>()?;
-        let span = Span::join([
-            paren_group.span(),
-            puncutated.span(),
-        ]);
+        let span = Span::join([paren_group.span(), puncutated.span()]);
 
         let out = Self {
             paren_group,
@@ -141,11 +139,7 @@ impl Parse for Argument {
         let colon_token = input.parse::<Token![:]>()?;
         let value = input.parse::<Expr>()?;
 
-        let span = Span::join([
-            param_name.span(),
-            colon_token.span(),
-            value.span(),
-        ]);
+        let span = Span::join([param_name.span(), colon_token.span(), value.span()]);
 
         Ok(Self {
             param_name,
@@ -169,11 +163,11 @@ pub struct ArgumentList {
 impl Parse for ArgumentList {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
         let paren_group = input.parse::<ParenGroup>()?;
-        let args = paren_group.inner.clone().parse::<Punctuated<Argument, Token![,]>>()?;
-        let span = Span::join([
-            paren_group.span(),
-            args.span(),
-        ]);
+        let args = paren_group
+            .inner
+            .clone()
+            .parse::<Punctuated<Argument, Token![,]>>()?;
+        let span = Span::join([paren_group.span(), args.span()]);
 
         return Ok(Self {
             paren_group,
@@ -205,11 +199,7 @@ impl Parse for ExprBlock {
         let brace_group = input.parse::<BraceGroup>()?;
         let block = brace_group.inner.clone().parse::<Block>()?;
 
-        let span = Span::join([
-            block_header.span(),
-            brace_group.span(),
-            block.span(),
-        ]);
+        let span = Span::join([block_header.span(), brace_group.span(), block.span()]);
 
         let out = Self {
             block_header,
@@ -254,11 +244,7 @@ impl Parse for ExprAssign {
         let eq_token = input.parse::<Token![=]>()?;
         let expr = input.parse::<Expr>()?;
 
-        let span = Span::join([
-            ident.span(),
-            eq_token.span(),
-            expr.span(),
-        ]);
+        let span = Span::join([ident.span(), eq_token.span(), expr.span()]);
 
         let out = Self {
             ident,
@@ -354,11 +340,7 @@ impl Parse for ExprBinary {
         };
         let rhs = input.parse::<Expr>()?;
 
-        let span = Span::join([
-            binary_op.span(),
-            lhs.span(),
-            rhs.span(),
-        ]);
+        let span = Span::join([binary_op.span(), lhs.span(), rhs.span()]);
 
         let out = Self {
             binary_op,
@@ -433,11 +415,7 @@ impl Parse for ExprWhile {
         let body = input.parse::<ExprBlock>()?;
         let body = Expr::Block(body);
 
-        let span = Span::join([
-            while_token.span(),
-            condition.span(),
-            body.span(),
-        ]);
+        let span = Span::join([while_token.span(), condition.span(), body.span()]);
 
         let out = Self {
             while_token,
@@ -475,10 +453,7 @@ impl Parse for Expr {
             if input.peek::<ParenGroup>() {
                 let args = input.parse::<ArgumentList>()?;
 
-                let span = Span::join([
-                    block.span(),
-                    input.span(),
-                ]);
+                let span = Span::join([block.span(), input.span()]);
 
                 let call = ExprCall {
                     expr: Box::new(Self::Block(block)),
@@ -509,10 +484,7 @@ impl Parse for Expr {
             if input.peek::<ParenGroup>() {
                 let args = input.parse::<ArgumentList>()?;
 
-                let span = Span::join([
-                    path.span(),
-                    args.span(),
-                ]);
+                let span = Span::join([path.span(), args.span()]);
 
                 let call = ExprCall {
                     expr: Box::new(Self::Path(path)),
@@ -521,15 +493,15 @@ impl Parse for Expr {
                 };
                 return Ok(Self::Call(call));
             } else if input.peek::<Token![=]>() {
-                let ident = path.path.segments.last.clone()
+                let ident = path
+                    .path
+                    .segments
+                    .last
+                    .clone()
                     .ok_or_else(|| anyhow!("expected ident ({})", input.surrounding()))?;
                 let eq_token = input.parse::<Token![=]>()?;
                 let expr = input.parse::<Expr>()?;
-                let span = Span::join([
-                    path.span(),
-                    eq_token.span(),
-                    expr.span(),
-                ]);
+                let span = Span::join([path.span(), eq_token.span(), expr.span()]);
 
                 let assign = ExprAssign {
                     ident,

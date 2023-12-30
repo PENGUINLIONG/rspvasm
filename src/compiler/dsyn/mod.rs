@@ -1,11 +1,11 @@
+mod ctxt;
 mod mat;
+mod obj;
 mod par;
 mod rule;
-mod obj;
-mod ctxt;
 
-pub use mat::Match;
-pub use par::{Par, ParType, ParseContext};
-pub use obj::{Object, ArrayObject, CompositeObject, ObjectRef};
-pub use rule::Rule;
 pub use ctxt::{Cmd, Context};
+pub use mat::Match;
+pub use obj::{ArrayObject, CompositeObject, Object, ObjectRef};
+pub use par::{Par, ParType, ParseContext};
+pub use rule::Rule;

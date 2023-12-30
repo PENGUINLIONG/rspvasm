@@ -1,8 +1,8 @@
-use anyhow::Result;
 use crate::compiler::common::span::{Span, SpanBuilder};
+use anyhow::Result;
 
 use super::token::*;
-use super::{ Parse, ParseBuffer };
+use super::{Parse, ParseBuffer};
 
 #[derive(Debug, Clone)]
 pub struct Punctuated<T, P> {
@@ -31,11 +31,17 @@ impl<T, P> Punctuated<T, P> {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &T> {
-        self.items.iter().map(|(item, _)| item)
+        self.items
+            .iter()
+            .map(|(item, _)| item)
             .chain(self.last.iter())
     }
 
-    pub fn parse_terminated(input: &mut ParseBuffer) -> Result<Self> where T: Parse, P: Parse {
+    pub fn parse_terminated(input: &mut ParseBuffer) -> Result<Self>
+    where
+        T: Parse,
+        P: Parse,
+    {
         let mut out = Self::new();
 
         let mut sb = SpanBuilder::new();
@@ -59,7 +65,9 @@ impl<T, P> Punctuated<T, P> {
     }
 
     pub fn parse_separated_nonempty(input: &mut ParseBuffer) -> Result<Self>
-        where T: Parse, P: Parse + Token
+    where
+        T: Parse,
+        P: Parse + Token,
     {
         let mut out = Self::new();
 
@@ -80,7 +88,11 @@ impl<T, P> Punctuated<T, P> {
         Ok(out)
     }
 }
-impl<T, P> Parse for Punctuated<T, P> where T: Parse, P: Parse {
+impl<T, P> Parse for Punctuated<T, P>
+where
+    T: Parse,
+    P: Parse,
+{
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
         Self::parse_terminated(input)
     }

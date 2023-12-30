@@ -1,6 +1,6 @@
+use super::{punctuated::Punctuated, stmt::Stmt, token::Ident, Parse, ParseBuffer};
+use crate::{compiler::common::span::Span, Token};
 use anyhow::Result;
-use crate::{Token, compiler::common::span::Span};
-use super::{stmt::Stmt, Parse, ParseBuffer, punctuated::Punctuated, token::Ident};
 
 #[derive(Debug, Clone)]
 pub struct BlockHeader {
@@ -56,10 +56,7 @@ impl FromIterator<Stmt> for Block {
         let stmts: Vec<Stmt> = iter.into_iter().collect();
         let span = Span::join(stmts.iter().map(|stmt| stmt.span()));
 
-        Self {
-            stmts,
-            span,
-        }
+        Self { stmts, span }
     }
 }
 impl From<Vec<Stmt>> for Block {

@@ -3,15 +3,13 @@ use crate::compiler::common::span::Span;
 use anyhow::{anyhow, bail, Result};
 
 macro_rules! unexpected_seq {
-    ($expected:expr, $parse_buf:expr) => {
-        {
-            let surrounding = $parse_buf.surrounding();
-            anyhow!("expected `{}`, surrounding is `{}`", $expected, surrounding)
-        }
-    };
+    ($expected:expr, $parse_buf:expr) => {{
+        let surrounding = $parse_buf.surrounding();
+        anyhow!("expected `{}`, surrounding is `{}`", $expected, surrounding)
+    }};
 }
 
-pub trait Token : Peek {}
+pub trait Token: Peek {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenTree {
@@ -25,7 +23,7 @@ impl Parse for TokenTree {
         if let Some(c) = input.as_ref().chars().next() {
             if c.is_ascii_digit() {
                 return Ok(TokenTree::Literal(input.parse::<Literal>()?));
-            } 
+            }
             if c.is_ascii_alphabetic() || c == '_' {
                 return Ok(TokenTree::Ident(input.parse::<Ident>()?));
             }
@@ -54,7 +52,6 @@ impl Peek for TokenTree {
         }
     }
 }
-
 
 macro_rules! define_token {
     ($( $name:literal => $ty:ident )*) => {
@@ -300,11 +297,10 @@ impl Peek for Punct {
     }
 }
 
-fn try_parse_group(
-    input: &mut ParseBuffer,
-) -> Result<(Delimiter, ParseBuffer)> {
+fn try_parse_group(input: &mut ParseBuffer) -> Result<(Delimiter, ParseBuffer)> {
     let s = input.as_ref();
-    let delimiter = s.chars()
+    let delimiter = s
+        .chars()
         .next()
         .ok_or_else(|| unexpected_seq!("group", input))
         .and_then(Delimiter::from_open_char)
@@ -326,7 +322,9 @@ fn try_parse_group(
                 break;
             } else {
                 depth -= 1;
-                next_close = s[iclose + 1..].find(delimiter.close).map(|x| x + iclose + 1);
+                next_close = s[iclose + 1..]
+                    .find(delimiter.close)
+                    .map(|x| x + iclose + 1);
             }
         }
     }
@@ -339,7 +337,9 @@ fn try_parse_group(
             return Ok((delimiter, content));
         } else {
             depth -= 1;
-            next_close = s[iclose + 1..].find(delimiter.close).map(|x| x + iclose + 1);
+            next_close = s[iclose + 1..]
+                .find(delimiter.close)
+                .map(|x| x + iclose + 1);
         }
     }
     Err(unexpected_seq!(delimiter.close, input))
@@ -419,9 +419,7 @@ impl Parse for Literal {
         if s.starts_with('"') {
             let end = s[1..].find('"');
             if let Some(i) = end {
-                let buf = s[1..i + 1]
-                    .replace("\\\"", "\"")
-                    .replace("\\\\", "\\");
+                let buf = s[1..i + 1].replace("\\\"", "\"").replace("\\\\", "\\");
                 input.advance_n(i + 2);
 
                 let hi = input.pos;
@@ -467,7 +465,7 @@ impl Parse for Literal {
                             s = &s[1..];
                         }
                     }
-        
+
                     // Process exponent part.
                     buf.extend(s.chars().take_while(|c| c.is_digit(10)));
                 }
@@ -544,9 +542,18 @@ impl Delimiter {
     }
     pub fn from_open_char(open: char) -> Result<Self> {
         let out = match open {
-            '(' => Self { open: '(', close: ')' },
-            '[' => Self { open: '[', close: ']' },
-            '{' => Self { open: '{', close: '}' },
+            '(' => Self {
+                open: '(',
+                close: ')',
+            },
+            '[' => Self {
+                open: '[',
+                close: ']',
+            },
+            '{' => Self {
+                open: '{',
+                close: '}',
+            },
             _ => bail!("invalid delimiter open char `{}`", open),
         };
         Ok(out)
@@ -733,19 +740,25 @@ mod tests {
             let mut input = ParseBuffer::from("true");
             let token = input.parse::<Literal>().unwrap();
             assert!(input.is_empty());
-            assert_eq!(token, Literal {
-                lit: Lit::Bool(true),
-                span: Span { lo: 0, hi: 4 },
-            });
+            assert_eq!(
+                token,
+                Literal {
+                    lit: Lit::Bool(true),
+                    span: Span { lo: 0, hi: 4 },
+                }
+            );
         }
         {
             let mut input = ParseBuffer::from("false");
             let token = input.parse::<Literal>().unwrap();
             assert!(input.is_empty());
-            assert_eq!(token, Literal {
-                lit: Lit::Bool(false),
-                span: Span { lo: 0, hi: 5 },
-            });
+            assert_eq!(
+                token,
+                Literal {
+                    lit: Lit::Bool(false),
+                    span: Span { lo: 0, hi: 5 },
+                }
+            );
         }
 
         // String.
@@ -753,10 +766,13 @@ mod tests {
             let mut input = ParseBuffer::from("\"foo\"");
             let token = input.parse::<Literal>().unwrap();
             assert!(input.is_empty());
-            assert_eq!(token, Literal {
-                lit: Lit::String("foo".to_string()),
-                span: Span { lo: 0, hi: 5 },
-            });
+            assert_eq!(
+                token,
+                Literal {
+                    lit: Lit::String("foo".to_string()),
+                    span: Span { lo: 0, hi: 5 },
+                }
+            );
         }
 
         // Interger.
@@ -764,10 +780,13 @@ mod tests {
             let mut input = ParseBuffer::from("123");
             let token = input.parse::<Literal>().unwrap();
             assert!(input.is_empty());
-            assert_eq!(token, Literal {
-                lit: Lit::Int(123),
-                span: Span { lo: 0, hi: 3 },
-            });
+            assert_eq!(
+                token,
+                Literal {
+                    lit: Lit::Int(123),
+                    span: Span { lo: 0, hi: 3 },
+                }
+            );
         }
 
         // Real number.
@@ -775,10 +794,13 @@ mod tests {
             let mut input = ParseBuffer::from("123.456");
             let token = input.parse::<Literal>().unwrap();
             assert!(input.is_empty());
-            assert_eq!(token, Literal {
-                lit: Lit::Float(123.456),
-                span: Span { lo: 0, hi: 7 },
-            });
+            assert_eq!(
+                token,
+                Literal {
+                    lit: Lit::Float(123.456),
+                    span: Span { lo: 0, hi: 7 },
+                }
+            );
         }
 
         // Scientific notation.
@@ -786,19 +808,25 @@ mod tests {
             let mut input = ParseBuffer::from("123.456e-7");
             let token = input.parse::<Literal>().unwrap();
             assert!(input.is_empty());
-            assert_eq!(token, Literal {
-                lit: Lit::Float(123.456e-7),
-                span: Span { lo: 0, hi: 10 },
-            });
+            assert_eq!(
+                token,
+                Literal {
+                    lit: Lit::Float(123.456e-7),
+                    span: Span { lo: 0, hi: 10 },
+                }
+            );
         }
         {
             let mut input = ParseBuffer::from("123.456E+7");
             let token = input.parse::<Literal>().unwrap();
             assert!(input.is_empty());
-            assert_eq!(token, Literal {
-                lit: Lit::Float(123.456E+7),
-                span: Span { lo: 0, hi: 10 },
-            });
+            assert_eq!(
+                token,
+                Literal {
+                    lit: Lit::Float(123.456E+7),
+                    span: Span { lo: 0, hi: 10 },
+                }
+            );
         }
 
         // Hexadecimal integer.
@@ -806,10 +834,13 @@ mod tests {
             let mut input = ParseBuffer::from("0x123");
             let token = input.parse::<Literal>().unwrap();
             assert!(input.is_empty());
-            assert_eq!(token, Literal {
-                lit: Lit::Int(0x123),
-                span: Span { lo: 0, hi: 5 },
-            });
+            assert_eq!(
+                token,
+                Literal {
+                    lit: Lit::Int(0x123),
+                    span: Span { lo: 0, hi: 5 },
+                }
+            );
         }
     }
 
@@ -819,9 +850,12 @@ mod tests {
         let paren_group = input.parse::<ParenGroup>().unwrap();
         let token = paren_group.inner.clone().parse::<Ident>().unwrap();
         assert!(input.is_empty());
-        assert_eq!(token, Ident {
-            name: "foo".to_string(),
-            span: Span { lo: 1, hi: 4 },
-        });
+        assert_eq!(
+            token,
+            Ident {
+                name: "foo".to_string(),
+                span: Span { lo: 1, hi: 4 },
+            }
+        );
     }
 }

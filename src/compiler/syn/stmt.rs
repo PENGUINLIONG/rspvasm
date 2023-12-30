@@ -1,7 +1,7 @@
+use super::{expr::Expr, meta::MetaList, pat::Pat, punctuated::Punctuated, token::*};
+use super::{Parse, ParseBuffer};
+use crate::{compiler::common::span::Span, Token};
 use anyhow::Result;
-use super::{ token::*, expr::Expr, punctuated::Punctuated, pat::Pat, meta::MetaList };
-use crate::{Token, compiler::common::span::Span};
-use super::{ Parse, ParseBuffer };
 
 #[derive(Debug, Clone)]
 pub struct StmtLocal {
@@ -17,8 +17,9 @@ pub struct StmtLocal {
 impl Parse for StmtLocal {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
         let let_token = input.parse::<Token![let]>()?;
-        let mut_token = input.peek::<Token![mut]>()
-            .then(|| { input.parse::<Token![mut]>() })
+        let mut_token = input
+            .peek::<Token![mut]>()
+            .then(|| input.parse::<Token![mut]>())
             .transpose()?;
         let name = input.parse::<Ident>()?;
         let eq_token = input.parse::<Token![=]>()?;
@@ -68,10 +69,7 @@ impl Parse for StmtExpr {
             None
         };
 
-        let span = Span::join([
-            expr.span(),
-            semi_token.span(),
-        ]);
+        let span = Span::join([expr.span(), semi_token.span()]);
 
         let out = Self {
             meta_list: MetaList::default(),
@@ -100,11 +98,7 @@ impl Parse for Variant {
         let eq_token = input.parse::<Token![=]>()?;
         let expr = input.parse::<Expr>()?;
 
-        let span = Span::join([
-            ident.span(),
-            eq_token.span(),
-            expr.span(),
-        ]);
+        let span = Span::join([ident.span(), eq_token.span(), expr.span()]);
 
         let out = Self {
             ident,
@@ -138,7 +132,10 @@ impl Parse for StmtConst {
             None
         };
         let brace_group = input.parse::<BraceGroup>()?;
-        let variants = brace_group.inner.clone().parse::<Punctuated<Variant, Token![,]>>()?;
+        let variants = brace_group
+            .inner
+            .clone()
+            .parse::<Punctuated<Variant, Token![,]>>()?;
 
         let span = Span::join([
             const_token.span(),
@@ -176,11 +173,7 @@ impl Parse for LayoutEntry {
         let eq_token = input.parse::<Token![=]>()?;
         let expr = input.parse::<Expr>()?;
 
-        let span = Span::join([
-            pat.span(),
-            eq_token.span(),
-            expr.span(),
-        ]);
+        let span = Span::join([pat.span(), eq_token.span(), expr.span()]);
 
         let out = Self {
             pat,
@@ -208,13 +201,12 @@ impl Parse for StmtLayout {
     fn parse(input: &mut ParseBuffer) -> Result<Self> {
         let layout_token = input.parse::<Token![layout]>()?;
         let brace_group = input.parse::<BraceGroup>()?;
-        let entries = brace_group.inner.clone().parse::<Punctuated<LayoutEntry, Token![,]>>()?;
+        let entries = brace_group
+            .inner
+            .clone()
+            .parse::<Punctuated<LayoutEntry, Token![,]>>()?;
 
-        let span = Span::join([
-            layout_token.span(),
-            brace_group.span(),
-            entries.span(),
-        ]);
+        let span = Span::join([layout_token.span(), brace_group.span(), entries.span()]);
 
         let out = Self {
             meta_list: MetaList::default(),

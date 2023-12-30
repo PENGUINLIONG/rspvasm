@@ -1,7 +1,10 @@
-use std::collections::HashMap;
-use crate::compiler::syn::{ParseBuffer, token::{Ident, Punct, Spacing, Literal}};
 use super::mat::Match;
+use crate::compiler::syn::{
+    token::{Ident, Literal, Punct, Spacing},
+    ParseBuffer,
+};
 use anyhow::{bail, Result};
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub enum ParType {
@@ -36,10 +39,7 @@ pub struct Par {
 }
 impl Par {
     pub fn new(key: Option<String>, ty: ParType) -> Self {
-        Self {
-            key,
-            ty,
-        }
+        Self { key, ty }
     }
 
     pub fn parse<P: Into<ParseBuffer>>(&self, input: P) -> Result<Match> {
@@ -72,29 +72,25 @@ impl ParseContext {
             ParType::AnyIdent => input.peek::<Ident>(),
             ParType::AnyLiteral => input.peek::<Literal>(),
             ParType::AnyPunct => input.peek::<Punct>(),
-            ParType::Ident(ident) => {
-                input.clone()
-                    .parse::<Ident>()
-                    .map(|x| x.name == *ident)
-                    .unwrap_or(false)
-            },
-            ParType::Punct(punct) => {
-                input.clone()
-                    .parse::<Punct>()
-                    .map(|x| x.ch == *punct && x.spacing == Spacing::Alone)
-                    .unwrap_or(false)
-            },
+            ParType::Ident(ident) => input
+                .clone()
+                .parse::<Ident>()
+                .map(|x| x.name == *ident)
+                .unwrap_or(false),
+            ParType::Punct(punct) => input
+                .clone()
+                .parse::<Punct>()
+                .map(|x| x.ch == *punct && x.spacing == Spacing::Alone)
+                .unwrap_or(false),
             ParType::Sequence(sequence) => {
                 if let Some(first) = sequence.first() {
                     self.peek(&first.ty, input)
                 } else {
                     true
                 }
-            },
+            }
             ParType::Optional(_) => true,
-            ParType::Punctuated(par, _) => {
-                self.peek(&par.ty, input)
-            },
+            ParType::Punctuated(par, _) => self.peek(&par.ty, input),
         }
     }
 
@@ -103,22 +99,22 @@ impl ParseContext {
             ParType::AnyIdent => {
                 let ident = input.parse::<Ident>()?;
                 Match::Ident(ident)
-            },
+            }
             ParType::AnyLiteral => {
                 let literal = input.parse::<Literal>()?;
                 Match::Literal(literal)
-            },
+            }
             ParType::AnyPunct => {
                 let punct = input.parse::<Punct>()?;
                 Match::Punct(punct)
-            },
+            }
             ParType::Ident(ident) => {
                 let ident2 = input.parse::<Ident>()?;
                 if ident2.name != *ident {
                     bail!("unexpected ident: {:?}", ident2);
                 }
                 Match::Ident(ident2)
-            },
+            }
             ParType::Punct(punct) => {
                 let punct2 = input.parse::<Punct>()?;
                 if punct2.ch != *punct || punct2.spacing != Spacing::Alone {
@@ -135,14 +131,14 @@ impl ParseContext {
                     }
                 }
                 Match::Dict(out)
-            },
+            }
             ParType::Optional(par) => {
                 if self.peek(&par.ty, input) {
                     self.parse_impl(&par.ty, input)?
                 } else {
                     Match::None
                 }
-            },
+            }
             ParType::Punctuated(par, punct) => {
                 let mut out = Vec::new();
                 loop {
@@ -162,7 +158,7 @@ impl ParseContext {
                 }
 
                 Match::List(out)
-            },
+            }
         };
 
         Ok(out)
@@ -203,7 +199,7 @@ mod tests {
             let dict = mat.as_dict().unwrap();
             assert_eq!(dict.len(), 1);
             let value = dict.get("first_ident").unwrap();
-    
+
             let ident = value.as_ident().unwrap();
             assert_eq!(ident.name, "a");
         }
@@ -219,13 +215,13 @@ mod tests {
             let dict = mat.as_dict().unwrap();
             assert_eq!(dict.len(), 1);
             let value = dict.get("first_literal").unwrap();
-    
+
             let literal = value.as_literal().unwrap();
             assert_eq!(literal.lit, Lit::Int(1));
         }
 
         // Punct.
-        {;
+        {
             let par = Par {
                 key: Some("first_punct".to_string()),
                 ty: ParType::AnyPunct,
@@ -235,7 +231,7 @@ mod tests {
             let dict = mat.as_dict().unwrap();
             assert_eq!(dict.len(), 1);
             let value = dict.get("first_punct").unwrap();
-    
+
             let punct = value.as_punct().unwrap();
             assert_eq!(punct.ch, '=');
             assert_eq!(punct.spacing, Spacing::Alone);
@@ -251,7 +247,8 @@ mod tests {
             ParType::AnyIdent.into_named_par("first_ident"),
             ParType::AnyPunct.into_named_par("first_punct"),
             ParType::AnyLiteral.into_named_par("first_literal"),
-        ]).into_named_par("seq");
+        ])
+        .into_named_par("seq");
         ctx.parse(&par, &mut input).unwrap();
         let mat = ctx.into_mat();
 
@@ -282,8 +279,10 @@ mod tests {
                 ParType::AnyIdent.into_named_par("second_ident"),
                 ParType::AnyPunct.into_named_par("second_punct"),
                 ParType::AnyLiteral.into_named_par("second_literal"),
-            ]).into_named_par("second_seq"),
-        ]).into_named_par("seq");
+            ])
+            .into_named_par("second_seq"),
+        ])
+        .into_named_par("seq");
 
         ctx.parse(&par, &mut input).unwrap();
         let mat = ctx.into_mat();
@@ -326,10 +325,12 @@ mod tests {
                     ParType::AnyIdent.into_named_par("first_ident"),
                     ParType::AnyPunct.into_named_par("first_punct"),
                     ParType::AnyLiteral.into_named_par("first_literal"),
-                ]).into_named_par("seq")
+                ])
+                .into_named_par("seq"),
             ),
-            ','
-        ).into_named_par("punctuated");
+            ',',
+        )
+        .into_named_par("punctuated");
 
         ctx.parse(&par, &mut input).unwrap();
         let mat = ctx.into_mat();
@@ -371,7 +372,6 @@ mod tests {
             let literal = value.as_literal().unwrap();
             assert_eq!(literal.lit, Lit::Int(2));
         }
-
     }
 
     #[test]
@@ -385,10 +385,12 @@ mod tests {
                     ParType::Ident("a".to_string()).into_named_par("first_ident"),
                     ParType::Punct('=').into_named_par("first_punct"),
                     ParType::AnyLiteral.into_named_par("first_literal"),
-                ]).into_named_par("seq")
+                ])
+                .into_named_par("seq"),
             ),
-            ','
-        ).into_named_par("punctuated");
+            ',',
+        )
+        .into_named_par("punctuated");
 
         ctx.parse(&par, &mut input).unwrap();
         let mat = ctx.into_mat();

@@ -1,7 +1,7 @@
-use anyhow::{anyhow, bail, Result};
 use crate::compiler::syn::token::Lit;
+use anyhow::{anyhow, bail, Result};
 
-use super::{Par, Cmd, Context, ObjectRef, Object, Match, ArrayObject, CompositeObject};
+use super::{ArrayObject, Cmd, CompositeObject, Context, Match, Object, ObjectRef, Par};
 
 pub struct Rule {
     par: Par,
@@ -9,10 +9,7 @@ pub struct Rule {
 }
 impl Rule {
     pub fn new(par: Par, cmds: Vec<Cmd>) -> Self {
-        Self {
-            par,
-            cmds,
-        }
+        Self { par, cmds }
     }
 
     fn exec_cmd_force(&self, cmd: &Cmd, ctxt: &mut Context) -> Result<ObjectRef> {
@@ -23,9 +20,7 @@ impl Rule {
     }
     fn exec_cmd(&self, cmd: &Cmd, ctxt: &mut Context) -> Result<Option<ObjectRef>> {
         let out = match cmd {
-            Cmd::Constant(c) => {
-                Some(c.value.clone())
-            }
+            Cmd::Constant(c) => Some(c.value.clone()),
             Cmd::Print(c) => {
                 let value = self.exec_cmd_force(&c.value, ctxt)?;
                 ctxt.log(format!("{:?}", value));
@@ -50,20 +45,14 @@ impl Rule {
     fn mat2obj(&self, mat: &Match) -> Result<ObjectRef> {
         let obj = match mat {
             Match::None => Object::None,
-            Match::Ident(ident) => {
-                Object::Ident(ident.name.clone())
+            Match::Ident(ident) => Object::Ident(ident.name.clone()),
+            Match::Literal(literal) => match &literal.lit {
+                Lit::Bool(x) => Object::Bool(*x),
+                Lit::Int(x) => Object::Int(*x),
+                Lit::Float(x) => Object::Float(*x),
+                Lit::String(x) => Object::String(x.clone()),
             },
-            Match::Literal(literal) => {
-                match &literal.lit {
-                    Lit::Bool(x) => Object::Bool(*x),
-                    Lit::Int(x) => Object::Int(*x),
-                    Lit::Float(x) => Object::Float(*x),
-                    Lit::String(x) => Object::String(x.clone()),
-                }
-            },
-            Match::Punct(punct) => {
-                Object::Punct(punct.ch, punct.spacing.clone())
-            },
+            Match::Punct(punct) => Object::Punct(punct.ch, punct.spacing.clone()),
             Match::List(list) => {
                 let mut arr = ArrayObject::new();
                 for item in list {
@@ -71,7 +60,7 @@ impl Rule {
                     arr.push(x);
                 }
                 Object::Array(arr)
-            },
+            }
             Match::Dict(dict) => {
                 let mut obj = CompositeObject::new("".to_string());
                 for (name, item) in dict {
@@ -79,7 +68,7 @@ impl Rule {
                     obj.set_attr(name.clone(), x);
                 }
                 Object::Composite(obj)
-            },
+            }
         };
 
         let out = ObjectRef::new(obj);
@@ -89,7 +78,8 @@ impl Rule {
     pub fn convert(&self, input: &str, ctxt: &mut Context) -> Result<()> {
         let mat = self.par.parse(input)?;
 
-        let dict = mat.as_dict()?
+        let dict = mat
+            .as_dict()?
             .get("__")
             .ok_or_else(|| anyhow!("global scope must be named as `__`"))?
             .as_dict()?;

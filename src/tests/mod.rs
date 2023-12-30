@@ -94,7 +94,8 @@ layout {
 
 #[test]
 fn test_compile_simple_runnable_spirv() {
-    let code = HEADER.to_string() + r#"
+    let code = HEADER.to_string()
+        + r#"
 ~Op::Capability(Capability::Shader);
 let glsl_std_450_ = ~Op::ExtInstImport("GLSL.std.450") -> _;
 ~Op::MemoryModel(AddressingModel::Logical, MemoryModel::GLSL450);
@@ -115,7 +116,9 @@ let label_ = ~Op::Label -> _;
 
     let dis = spirv.disassemble();
 
-    assert_eq!(dis, r#"
+    assert_eq!(
+        dis,
+        r#"
 OpCapability Shader
 %1 = OpExtInstImport "GLSL.std.450"
 OpMemoryModel Logical GLSL450
@@ -127,12 +130,15 @@ OpExecutionMode %4 LocalSize 1 1 1
 %5 = OpLabel
 OpReturn
 OpFunctionEnd
-"#.trim());
+"#
+        .trim()
+    );
 }
 
 #[test]
 fn test_compile_simple_runnable_spirv_with_block_emit() {
-    let code = HEADER.to_string() + r#"
+    let code = HEADER.to_string()
+        + r#"
 ~Op::Capability(Capability::Shader);
 let glsl_std_450_ = ~Op::ExtInstImport("GLSL.std.450") -> _;
 ~Op::MemoryModel(AddressingModel::Logical, MemoryModel::GLSL450);
@@ -155,7 +161,9 @@ let main_ = ~Op::Function(FunctionControl::None, function_void_) -> void_;
 
     let dis = spirv.disassemble();
 
-    assert_eq!(dis, r#"
+    assert_eq!(
+        dis,
+        r#"
 OpCapability Shader
 %1 = OpExtInstImport "GLSL.std.450"
 OpMemoryModel Logical GLSL450
@@ -167,12 +175,15 @@ OpExecutionMode %4 LocalSize 1 1 1
 %5 = OpLabel
 OpReturn
 OpFunctionEnd
-"#.trim());
+"#
+        .trim()
+    );
 }
 
 #[test]
 fn test_compile_simple_runnable_spirv_with_separated_block_emit() {
-    let code = HEADER.to_string() + r#"
+    let code = HEADER.to_string()
+        + r#"
 ~Op::Capability(Capability::Shader);
 let glsl_std_450_ = ~Op::ExtInstImport("GLSL.std.450") -> _;
 ~Op::MemoryModel(AddressingModel::Logical, MemoryModel::GLSL450);
@@ -201,7 +212,9 @@ let main_ = entry_();
 
     let dis = spirv.disassemble();
 
-    assert_eq!(dis, r#"
+    assert_eq!(
+        dis,
+        r#"
 OpCapability Shader
 %1 = OpExtInstImport "GLSL.std.450"
 OpMemoryModel Logical GLSL450
@@ -213,12 +226,15 @@ OpExecutionMode %4 LocalSize 1 1 1
 %5 = OpLabel
 OpReturn
 OpFunctionEnd
-"#.trim());
+"#
+        .trim()
+    );
 }
 
 #[test]
 fn test_compile_simple_runnable_spirv_with_function_call() {
-    let code = HEADER.to_string() + r#"
+    let code = HEADER.to_string()
+        + r#"
 ~Op::Capability(Capability::Shader);
 let glsl_std_450_ = ~Op::ExtInstImport("GLSL.std.450") -> _;
 ~Op::MemoryModel(AddressingModel::Logical, MemoryModel::GLSL450);
@@ -259,7 +275,9 @@ make_entry_point(
 
     let dis = spirv.disassemble();
 
-    assert_eq!(dis, r#"
+    assert_eq!(
+        dis,
+        r#"
 OpCapability Shader
 %1 = OpExtInstImport "GLSL.std.450"
 OpMemoryModel Logical GLSL450
@@ -271,12 +289,15 @@ OpExecutionMode %4 LocalSize 16 8 1
 %5 = OpLabel
 OpReturn
 OpFunctionEnd
-"#.trim());
+"#
+        .trim()
+    );
 }
 
 #[test]
 fn test_compile_complex_functional() {
-    let code = HEADER.to_string() + r#"
+    let code = HEADER.to_string()
+        + r#"
 ~Op::Capability(Capability::Shader);
 let glsl_std_450_ = ~Op::ExtInstImport("GLSL.std.450") -> _;
 ~Op::MemoryModel(AddressingModel::Logical, MemoryModel::GLSL450);
@@ -324,7 +345,9 @@ make_entry_point(
 
     let dis = spirv.disassemble();
 
-    assert_eq!(dis, r#"
+    assert_eq!(
+        dis,
+        r#"
 OpCapability Shader
 %1 = OpExtInstImport "GLSL.std.450"
 OpMemoryModel Logical GLSL450
@@ -336,5 +359,7 @@ OpExecutionMode %4 LocalSize 16 8 1
 %5 = OpLabel
 OpReturn
 OpFunctionEnd
-"#.trim());
+"#
+        .trim()
+    );
 }

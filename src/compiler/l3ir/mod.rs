@@ -1,8 +1,8 @@
 //! Level-4 Intermediate Representation
 //!
 //! Named lookup.
+use anyhow::{anyhow, bail, Result};
 use std::collections::HashMap;
-use anyhow::{anyhow, Result, bail};
 
 use crate::def_into_node_ref;
 
@@ -174,56 +174,52 @@ impl Node {
 pub type NodeRef = super::common::NodeRef<Node>;
 impl NodeRef {
     pub fn force_transform<T>(&self, lower: &mut T) -> Result<NodeRef>
-        where T: FnMut(&NodeRef) -> Result<Option<NodeRef>>
+    where
+        T: FnMut(&NodeRef) -> Result<Option<NodeRef>>,
     {
-        lower(self)?
-                .ok_or_else(|| {
-                    anyhow!("force lower must receive a transformed node")
-                })
+        lower(self)?.ok_or_else(|| anyhow!("force lower must receive a transformed node"))
     }
     pub fn transform<T>(&self, lower: &mut T) -> Result<Option<NodeRef>>
-        where T: FnMut(&NodeRef) -> Result<Option<NodeRef>>
+    where
+        T: FnMut(&NodeRef) -> Result<Option<NodeRef>>,
     {
         let out = match self.as_ref() {
-            Node::Constant(_) => {
-                Some(self.clone())
-            },
+            Node::Constant(_) => Some(self.clone()),
             Node::Array(array) => {
-                let elems = array.elems.iter()
+                let elems = array
+                    .elems
+                    .iter()
                     .map(|elem| elem.force_transform(lower))
                     .collect::<Result<Vec<_>>>()?;
-                let node = NodeArray {
-                    elems,
-                }.into_node_ref();
+                let node = NodeArray { elems }.into_node_ref();
 
                 Some(node)
-            },
+            }
             Node::Index(index) => {
                 let array = index.array.force_transform(lower)?;
                 let index = index.index.force_transform(lower)?;
 
-                let node = NodeIndex {
-                    array,
-                    index,
-                }.into_node_ref();
+                let node = NodeIndex { array, index }.into_node_ref();
 
                 Some(node)
-            },
+            }
             Node::Length(length) => {
                 let array = length.array.force_transform(lower)?;
 
-                let node = NodeLength {
-                    array,
-                }.into_node_ref();
+                let node = NodeLength { array }.into_node_ref();
 
                 Some(node)
-            },
+            }
             Node::Instr(instr) => {
                 let opcode = instr.opcode.force_transform(lower)?;
-                let operands = instr.operands.iter()
+                let operands = instr
+                    .operands
+                    .iter()
                     .map(|operand| operand.force_transform(lower))
                     .collect::<Result<Vec<_>>>()?;
-                let result_type = instr.result_type.as_ref()
+                let result_type = instr
+                    .result_type
+                    .as_ref()
                     .map(|result_type| result_type.force_transform(lower))
                     .transpose()?;
                 let node = NodeInstr {
@@ -231,21 +227,26 @@ impl NodeRef {
                     operands,
                     result_type,
                     has_result: instr.has_result,
-                }.into_node_ref();
+                }
+                .into_node_ref();
 
                 Some(node)
-            },
-            Node::Arg(_) => {
-                Some(self.clone())
-            },
+            }
+            Node::Arg(_) => Some(self.clone()),
             Node::Block(block) => {
-                let params = block.params.iter()
+                let params = block
+                    .params
+                    .iter()
                     .map(|param| param.force_transform(lower))
                     .collect::<Result<Vec<_>>>()?;
-                let nodes = block.nodes.iter()
+                let nodes = block
+                    .nodes
+                    .iter()
                     .filter_map(|node| lower(node).transpose())
                     .collect::<Result<Vec<_>>>()?;
-                let result_node = block.result_node.as_ref()
+                let result_node = block
+                    .result_node
+                    .as_ref()
                     .map(|result_node| result_node.force_transform(lower))
                     .transpose()?;
 
@@ -253,55 +254,49 @@ impl NodeRef {
                     params,
                     nodes,
                     result_node,
-                }.into_node_ref();
+                }
+                .into_node_ref();
 
                 Some(node)
-            },
+            }
             Node::Instantiate(instantiate) => {
-                let args = instantiate.args.iter()
+                let args = instantiate
+                    .args
+                    .iter()
                     .map(|arg| arg.force_transform(lower))
                     .collect::<Result<Vec<_>>>()?;
                 let node = instantiate.node.force_transform(lower)?;
 
-                let node = NodeInstantiate {
-                    args,
-                    node,
-                }.into_node_ref();
+                let node = NodeInstantiate { args, node }.into_node_ref();
 
                 Some(node)
-            },
+            }
             Node::Emit(emit) => {
                 let instr = emit.instr.force_transform(lower)?;
 
-                let node = NodeEmit {
-                    instr,
-                }.into_node_ref();
+                let node = NodeEmit { instr }.into_node_ref();
 
                 Some(node)
-            },
+            }
             Node::Define(define) => {
                 let value = define.value.force_transform(lower)?;
                 let node = NodeDefine {
                     name: define.name.clone(),
                     value,
-                }.into_node_ref();
+                }
+                .into_node_ref();
 
                 Some(node)
-            },
-            Node::Lookup(_) => {
-                Some(self.clone())
-            },
+            }
+            Node::Lookup(_) => Some(self.clone()),
             Node::Layout(layout) => {
                 let op = layout.op.force_transform(lower)?;
                 let position = layout.position.force_transform(lower)?;
 
-                let node = NodeLayout {
-                    op,
-                    position,
-                }.into_node_ref();
+                let node = NodeLayout { op, position }.into_node_ref();
 
                 Some(node)
-            },
+            }
             Node::IfThenElse(if_then_else) => {
                 let cond = if_then_else.cond.force_transform(lower)?;
                 let then_node = if_then_else.then_node.force_transform(lower)?;
@@ -311,23 +306,23 @@ impl NodeRef {
                     cond,
                     then_node,
                     else_node,
-                }.into_node_ref();
+                }
+                .into_node_ref();
 
                 Some(node)
-            },
+            }
             Node::While(while_) => {
                 let cond = while_.cond.force_transform(lower)?;
                 let body_node = while_.cond.force_transform(lower)?;
 
-                let node = NodeWhile {
-                    cond,
-                    body_node,
-                }.into_node_ref();
+                let node = NodeWhile { cond, body_node }.into_node_ref();
 
                 Some(node)
             }
             Node::Variable(variable) => {
-                let init_value = variable.init_value.as_ref()
+                let init_value = variable
+                    .init_value
+                    .as_ref()
                     .map(|x| x.force_transform(lower))
                     .transpose()?;
 
@@ -335,32 +330,28 @@ impl NodeRef {
                     name: variable.name.clone(),
                     is_mutable: variable.is_mutable,
                     init_value,
-                }.into_node_ref();
+                }
+                .into_node_ref();
 
                 Some(node)
-            },
+            }
             Node::Load(load) => {
                 let variable = load.variable.force_transform(lower)?;
                 assert!(variable.is_variable(), "load variable must be a variable");
 
-                let node = NodeLoad {
-                    variable,
-                }.into_node_ref();
+                let node = NodeLoad { variable }.into_node_ref();
 
                 Some(node)
-            },
+            }
             Node::Store(store) => {
                 let variable = store.variable.force_transform(lower)?;
                 assert!(variable.is_variable(), "load variable must be a variable");
                 let value = store.value.force_transform(lower)?;
 
-                let node = NodeStore {
-                    variable,
-                    value,
-                }.into_node_ref();
+                let node = NodeStore { variable, value }.into_node_ref();
 
                 Some(node)
-            },
+            }
             Node::Binary(binary) => {
                 let lhs = binary.lhs.force_transform(lower)?;
                 let rhs = binary.rhs.force_transform(lower)?;
@@ -369,10 +360,11 @@ impl NodeRef {
                     binary_op: binary.binary_op.clone(),
                     lhs,
                     rhs,
-                }.into_node_ref();
+                }
+                .into_node_ref();
 
                 Some(node)
-            },
+            }
         };
 
         Ok(out)
@@ -399,9 +391,7 @@ impl InlineLookups {
     }
 
     fn define(&mut self, name: String, value: NodeRef) {
-        self.stack.last_mut()
-            .unwrap()
-            .insert(name, value);
+        self.stack.last_mut().unwrap().insert(name, value);
     }
     fn lookup(&mut self, name: &str) -> Option<NodeRef> {
         for frame in self.stack.iter_mut().rev() {
@@ -422,9 +412,7 @@ impl InlineLookups {
 
     fn force_lower(&mut self, node: &NodeRef) -> Result<NodeRef> {
         self.lower(node)?
-            .ok_or_else(|| {
-                anyhow!("force lower must receive a transformed node")
-            })
+            .ok_or_else(|| anyhow!("force lower must receive a transformed node"))
     }
     fn lower(&mut self, node: &NodeRef) -> Result<Option<NodeRef>> {
         if let Some(x) = self.cache.get(&node) {
@@ -436,23 +424,30 @@ impl InlineLookups {
                 let value = self.force_lower(&define.value)?;
                 self.define(define.name.clone(), value);
                 None
-            },
+            }
             Node::Lookup(lookup) => {
-                let node = self.lookup(&lookup.name)
+                let node = self
+                    .lookup(&lookup.name)
                     .ok_or_else(|| anyhow!("cannot find symbol: {}", lookup.name))?;
                 Some(node)
-            },
+            }
 
             Node::Block(block) => {
                 self.push();
 
-                let params = block.params.iter()
+                let params = block
+                    .params
+                    .iter()
                     .map(|param| self.force_lower(param))
                     .collect::<Result<Vec<_>>>()?;
-                let nodes = block.nodes.iter()
+                let nodes = block
+                    .nodes
+                    .iter()
                     .filter_map(|node| self.lower(node).transpose())
                     .collect::<Result<Vec<_>>>()?;
-                let result_node = block.result_node.as_ref()
+                let result_node = block
+                    .result_node
+                    .as_ref()
                     .map(|result_node| self.force_lower(result_node))
                     .transpose()?;
 
@@ -462,16 +457,27 @@ impl InlineLookups {
                     params,
                     nodes,
                     result_node,
-                }.into_node_ref();
+                }
+                .into_node_ref();
 
                 Some(node)
-            },
+            }
 
-            Node::Arg(_) | Node::Constant(_) | Node::Array(_) | Node::Index(_) | Node::Length(_) | Node::Layout(_) | Node::Instr(_) | Node::Instantiate(_) | Node::Emit(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) | Node::Binary(_) => {
-                node.transform(&mut |x| {
-                    self.lower(x)
-                })?
-            },
+            Node::Arg(_)
+            | Node::Constant(_)
+            | Node::Array(_)
+            | Node::Index(_)
+            | Node::Length(_)
+            | Node::Layout(_)
+            | Node::Instr(_)
+            | Node::Instantiate(_)
+            | Node::Emit(_)
+            | Node::IfThenElse(_)
+            | Node::While(_)
+            | Node::Variable(_)
+            | Node::Load(_)
+            | Node::Store(_)
+            | Node::Binary(_) => node.transform(&mut |x| self.lower(x))?,
         };
 
         if let Some(out) = out.as_ref() {
@@ -495,19 +501,23 @@ impl CollectLayouts {
     pub fn lower_impl(&mut self, node: &NodeRef) -> Result<Option<NodeRef>> {
         let out = match node.as_ref() {
             Node::Layout(layout) => {
-                let opcode = layout.op.as_ref()
+                let opcode = layout
+                    .op
+                    .as_ref()
                     .as_constant()
                     .and_then(|x| x.as_int())
                     .filter(|x| *x < u16::MAX as i32)
                     .ok_or_else(|| anyhow!("layout op must be an u16 opcode"))?;
-                let position = layout.position.as_ref()
+                let position = layout
+                    .position
+                    .as_ref()
                     .as_constant()
                     .and_then(|x| x.as_float())
                     .ok_or_else(|| anyhow!("layout position must be a float"))?;
 
                 self.layouts.insert(opcode as u32, position);
                 None
-            },
+            }
             _ => Some(node.clone()),
         };
 
@@ -519,17 +529,15 @@ impl CollectLayouts {
         let mut nodes = Vec::new();
 
         match node.as_ref() {
-            Node::Instantiate(x) => {
-                match x.node.as_ref() {
-                    Node::Block(block) => {
-                        for node in block.nodes.iter() {
-                            if let Some(node) = self.lower_impl(node)? {
-                                nodes.push(node);
-                            }
+            Node::Instantiate(x) => match x.node.as_ref() {
+                Node::Block(block) => {
+                    for node in block.nodes.iter() {
+                        if let Some(node) = self.lower_impl(node)? {
+                            nodes.push(node);
                         }
-                    },
-                    _ => bail!("expected block"),
+                    }
                 }
+                _ => bail!("expected block"),
             },
             _ => bail!("expected instantiate"),
         };
@@ -540,8 +548,10 @@ impl CollectLayouts {
                 nodes,
                 params: vec![],
                 result_node: None,
-            }.into_node_ref(),
-        }.into_node_ref();
+            }
+            .into_node_ref(),
+        }
+        .into_node_ref();
 
         Ok(out_node)
     }
@@ -591,7 +601,9 @@ impl EvaluateControlFlow {
     }
 
     pub fn load(&mut self, variable: &NodeRef) -> Result<NodeRef> {
-        let node = self.variables.get(&variable)
+        let node = self
+            .variables
+            .get(&variable)
             .ok_or_else(|| anyhow!("undefined variable: {:?}", variable))?
             .clone()
             .ok_or_else(|| anyhow!("variable is not assigned yet: {:?}", variable))?;
@@ -599,7 +611,8 @@ impl EvaluateControlFlow {
     }
 
     pub fn force_lower(&mut self, node: &NodeRef) -> Result<NodeRef> {
-        let out = self.lower(node)?
+        let out = self
+            .lower(node)?
             .ok_or_else(|| anyhow!("cannot lower non-instruction nodes"))?;
         Ok(out)
     }
@@ -610,67 +623,83 @@ impl EvaluateControlFlow {
 
         let out = match node.as_ref() {
             Node::Variable(variable) => {
-                let init_value = variable.init_value.as_ref()
+                let init_value = variable
+                    .init_value
+                    .as_ref()
                     .map(|x| self.force_lower(x))
                     .transpose()?;
                 self.declare(node, init_value)?;
                 None
-            },
+            }
             Node::Load(load) => {
                 let node = self.load(&load.variable)?;
                 Some(node)
-            },
+            }
             Node::Store(store) => {
                 let value = self.force_lower(&store.value)?;
                 self.store(&store.variable, value)?;
                 None
-            },
+            }
 
             Node::Index(index) => {
                 let array = self.force_lower(&index.array)?;
-                let array = array.as_array()
+                let array = array
+                    .as_array()
                     .ok_or_else(|| anyhow!("index array must be an array"))?;
-                let index = self.force_lower(&index.index)?
+                let index = self
+                    .force_lower(&index.index)?
                     .as_constant()
                     .and_then(|x| x.value.as_int())
                     .ok_or_else(|| anyhow!("index must be an int constant"))?;
 
-                let node = array.elems.get(index as usize)
+                let node = array
+                    .elems
+                    .get(index as usize)
                     .ok_or_else(|| anyhow!("index out of bounds"))?
                     .clone();
 
                 Some(node)
-            },
+            }
             Node::Length(length) => {
                 let array = self.force_lower(&length.array)?;
-                let array = array.as_array()
+                let array = array
+                    .as_array()
                     .ok_or_else(|| anyhow!("length array must be an array"))?;
 
                 let node = NodeConstant {
                     value: ConstantValue::Int(array.elems.len() as i32),
-                }.into_node_ref();
+                }
+                .into_node_ref();
 
                 Some(node)
-            },
+            }
 
             Node::IfThenElse(if_then_else) => {
-                let cond = self.force_lower(&if_then_else.cond)?
+                let cond = self
+                    .force_lower(&if_then_else.cond)?
                     .as_constant()
                     .and_then(|x| x.value.as_bool())
                     .ok_or_else(|| anyhow!("if-then-else condition must be a bool constant"))?;
 
                 if cond {
                     let then_node = self.force_lower(&if_then_else.then_node)?;
-                    assert!(then_node.is_instantiate(), "then node must be an instantiated block");
+                    assert!(
+                        then_node.is_instantiate(),
+                        "then node must be an instantiated block"
+                    );
                     Some(then_node)
                 } else {
                     let else_node = self.force_lower(&if_then_else.else_node)?;
-                    assert!(else_node.is_instantiate(), "else node must be an instantiated block");
+                    assert!(
+                        else_node.is_instantiate(),
+                        "else node must be an instantiated block"
+                    );
                     Some(else_node)
                 }
-            },
+            }
             Node::While(while_) => {
-                let cond = self.force_lower(&while_.cond)?
+                let cond = self
+                    .force_lower(&while_.cond)?
                     .as_constant()
                     .and_then(|x| x.value.as_bool())
                     .ok_or_else(|| anyhow!("while condition must be a bool constant"))?;
@@ -678,7 +707,10 @@ impl EvaluateControlFlow {
                 loop {
                     if cond {
                         let body_node = self.force_lower(&while_.body_node)?;
-                        assert!(body_node.is_instantiate(), "body node must be an instantiated block");
+                        assert!(
+                            body_node.is_instantiate(),
+                            "body node must be an instantiated block"
+                        );
                     } else {
                         break;
                     }
@@ -688,12 +720,14 @@ impl EvaluateControlFlow {
             }
 
             Node::Binary(binary) => {
-                let lhs = self.force_lower(&binary.lhs)?
+                let lhs = self
+                    .force_lower(&binary.lhs)?
                     .as_constant()
                     .ok_or_else(|| anyhow!("lhs must be a constant"))?
                     .value
                     .clone();
-                let rhs = self.force_lower(&binary.rhs)?
+                let rhs = self
+                    .force_lower(&binary.rhs)?
                     .as_constant()
                     .ok_or_else(|| anyhow!("rhs must be a constant"))?
                     .value
@@ -715,19 +749,19 @@ impl EvaluateControlFlow {
                     BinaryOp::LogicalOr => lhs.logic_or(&rhs),
                 };
 
-                let node = NodeConstant {
-                    value: out,
-                }.into_node_ref();
+                let node = NodeConstant { value: out }.into_node_ref();
 
                 Some(node)
-            },
+            }
 
             Node::Define(_) | Node::Lookup(_) | Node::Layout(_) => unreachable!(),
-            Node::Arg(_) | Node::Constant(_) | Node::Array(_) | Node::Instr(_) | Node::Block(_) | Node::Instantiate(_) | Node::Emit(_) => {
-                node.transform(&mut |x| {
-                    self.lower(x)
-                })?
-            },
+            Node::Arg(_)
+            | Node::Constant(_)
+            | Node::Array(_)
+            | Node::Instr(_)
+            | Node::Block(_)
+            | Node::Instantiate(_)
+            | Node::Emit(_) => node.transform(&mut |x| self.lower(x))?,
         };
 
         if let Some(x) = out.as_ref() {
@@ -742,7 +776,6 @@ impl EvaluateControlFlow {
         let out = x.force_lower(node)?;
         Ok(out)
     }
-
 }
 
 #[derive(Debug, Clone, Default)]
@@ -765,10 +798,7 @@ impl InstantiateBlocks {
 
     // A stack is completely pushed first by an instantiate and then by a block.
     pub fn push_by_instantiate(&mut self, args: Vec<NodeRef>) {
-        let frame = StackFrame {
-            params: None,
-            args,
-        };
+        let frame = StackFrame { params: None, args };
         self.stack.push(frame);
     }
     pub fn push_by_block(&mut self, params: Vec<NodeRef>) -> bool {
@@ -793,15 +823,18 @@ impl InstantiateBlocks {
     pub fn lookup(&mut self, param: &NodeRef) -> Option<NodeRef> {
         for frame in self.stack.iter().rev() {
             if let Some(params) = frame.params.as_ref() {
-                let arg = params.iter()
+                let arg = params
+                    .iter()
                     .zip(frame.args.iter())
-                    .find_map(|(xparam, xarg)| {
-                        if xparam == param {
-                            Some(xarg)
-                        } else {
-                            None
-                        }
-                    });
+                    .find_map(
+                        |(xparam, xarg)| {
+                            if xparam == param {
+                                Some(xarg)
+                            } else {
+                                None
+                            }
+                        },
+                    );
                 if arg.is_some() {
                     return arg.cloned();
                 }
@@ -822,9 +855,7 @@ impl InstantiateBlocks {
 
     pub fn force_lower(&mut self, node: &NodeRef) -> Result<NodeRef> {
         self.lower(node)?
-            .ok_or_else(|| {
-                anyhow!("force lower must receive a transformed node")
-            })
+            .ok_or_else(|| anyhow!("force lower must receive a transformed node"))
     }
     pub fn lower(&mut self, node: &NodeRef) -> Result<Option<NodeRef>> {
         if let Some(x) = self.cache.get(&node) {
@@ -833,47 +864,60 @@ impl InstantiateBlocks {
 
         let out = match node.as_ref() {
             Node::Arg(arg) => {
-                let node = self.lookup(node)
+                let node = self
+                    .lookup(node)
                     .ok_or_else(|| anyhow!("arg is not assigned: {}", arg.name))?;
                 let node = self.force_lower(&node)?;
                 Some(node)
-            },
+            }
             Node::Block(block) => {
                 self.push_by_block(block.params.clone());
 
                 let mut nodes = Vec::new();
                 for node in block.nodes.iter() {
                     let node = match node.as_ref() {
-                        Node::Instantiate(_) | Node::Emit(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) => self.lower(&node)?,
+                        Node::Instantiate(_)
+                        | Node::Emit(_)
+                        | Node::IfThenElse(_)
+                        | Node::While(_)
+                        | Node::Variable(_)
+                        | Node::Load(_)
+                        | Node::Store(_) => self.lower(&node)?,
                         _ => None,
                     };
                     if let Some(node) = node {
                         nodes.push(node);
                     }
                 }
-                let result_node = block.result_node.as_ref()
+                let result_node = block
+                    .result_node
+                    .as_ref()
                     .map(|result_node| self.force_lower(result_node))
                     .transpose()?;
 
                 self.pop_by_block();
-    
+
                 let node = NodeBlock {
                     params: Vec::new(),
                     nodes,
                     result_node,
-                }.into_node_ref();
+                }
+                .into_node_ref();
 
                 Some(node)
-            },
+            }
             Node::Instantiate(instantiate) => {
                 self.push_by_instantiate(instantiate.args.clone());
                 let node = self.force_lower(&instantiate.node)?;
                 self.pop_by_instantiate();
 
                 match node.as_ref() {
-                    Node::Block(_) => {},
+                    Node::Block(_) => {}
                     Node::Instantiate(_) => {
-                        bail!("attempting to instantiate a block that is already instantiated: {:?}", node)
+                        bail!(
+                            "attempting to instantiate a block that is already instantiated: {:?}",
+                            node
+                        )
                     }
                     _ => bail!("expected block, got: {:?}", instantiate.node),
                 }
@@ -881,17 +925,24 @@ impl InstantiateBlocks {
                 let node = NodeInstantiate {
                     args: Vec::new(),
                     node,
-                }.into_node_ref();
+                }
+                .into_node_ref();
 
                 Some(node)
-            },
+            }
 
             Node::Define(_) | Node::Lookup(_) | Node::Index(_) | Node::Length(_) => unreachable!(),
-            Node::Constant(_) | Node::Array(_) | Node::Instr(_) | Node::Emit(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) | Node::Binary(_) => {
-                node.transform(&mut |x| {
-                    self.lower(x)
-                })?
-            },
+            Node::Constant(_)
+            | Node::Array(_)
+            | Node::Instr(_)
+            | Node::Emit(_)
+            | Node::Layout(_)
+            | Node::IfThenElse(_)
+            | Node::While(_)
+            | Node::Variable(_)
+            | Node::Load(_)
+            | Node::Store(_)
+            | Node::Binary(_) => node.transform(&mut |x| self.lower(x))?,
         };
 
         if let Some(out) = out.as_ref() {
@@ -916,9 +967,7 @@ impl FlattenBlocks {
 
     fn force_lower(&mut self, node: &NodeRef) -> Result<NodeRef> {
         self.lower(node)?
-            .ok_or_else(|| {
-                anyhow!("force lower must receive a transformed node: {:?}", node)
-            })
+            .ok_or_else(|| anyhow!("force lower must receive a transformed node: {:?}", node))
     }
     fn lower(&mut self, node: &NodeRef) -> Result<Option<NodeRef>> {
         if let Some(x) = self.cache.get(&node) {
@@ -926,16 +975,18 @@ impl FlattenBlocks {
         }
 
         let out = match node.as_ref() {
-            Node::Constant(_) => {
-                Some(node.clone())
-            },
+            Node::Constant(_) => Some(node.clone()),
             Node::Emit(emit) => {
                 if let Some(instr) = emit.instr.as_instr() {
                     let opcode = self.force_lower(&instr.opcode)?;
-                    let operands = instr.operands.iter()
+                    let operands = instr
+                        .operands
+                        .iter()
                         .map(|operand| self.force_lower(operand))
                         .collect::<Result<Vec<_>>>()?;
-                    let result_type = instr.result_type.as_ref()
+                    let result_type = instr
+                        .result_type
+                        .as_ref()
                         .map(|result_type| self.force_lower(result_type))
                         .transpose()?;
 
@@ -945,8 +996,10 @@ impl FlattenBlocks {
                             operands,
                             result_type,
                             has_result: instr.has_result,
-                        }.into_node_ref(),
-                    }.into_node_ref();
+                        }
+                        .into_node_ref(),
+                    }
+                    .into_node_ref();
 
                     self.root_nodes.push(node.clone());
 
@@ -954,22 +1007,24 @@ impl FlattenBlocks {
                 } else {
                     bail!("expected instr, got: {:?}", emit.instr);
                 }
-            },
+            }
             Node::Instantiate(instantiate) => {
                 if let Some(block) = instantiate.node.as_block() {
                     for node in block.nodes.iter() {
                         self.lower(node)?;
                     }
-    
-                    let result_node = block.result_node.as_ref()
+
+                    let result_node = block
+                        .result_node
+                        .as_ref()
                         .map(|result_node| self.force_lower(result_node))
                         .transpose()?;
-    
+
                     result_node
                 } else {
                     bail!("expected block, got: {:?}", instantiate.node);
                 }
-            },
+            }
             _ => None,
         };
 
@@ -988,9 +1043,11 @@ impl FlattenBlocks {
                 nodes: x.root_nodes,
                 params: vec![],
                 result_node: None,
-            }.into_node_ref(),
+            }
+            .into_node_ref(),
             args: vec![],
-        }.into_node_ref();
+        }
+        .into_node_ref();
         Ok(out)
     }
 }
@@ -1013,37 +1070,45 @@ impl Lower {
         }
 
         match node.as_ref() {
-            Node::Constant(_) | Node::Array(_) | Node::Block(_) | Node::Instr(_) => {},
-            Node::Emit(emit) => {
-                match emit.instr.as_ref() {
-                    Node::Instr(instr) => {
-                        self.alloc_node_id(&instr.opcode)?;
-                        for operand in instr.operands.iter() {
-                            self.alloc_node_id(operand)?;
-                        }
-                        if let Some(result_type) = instr.result_type.as_ref() {
-                            self.alloc_node_id(result_type)?;
-                        }
-
-                        if instr.has_result {
-                            self.node_id_tokens.insert(node.clone(), self.instr_ctxt.alloc_id());
-                        }
-                    },
-                    _ => unreachable!(),
-                }
-            },
-            Node::Instantiate(instantiate) => {
-                match instantiate.node.as_ref() {
-                    Node::Block(block) => {
-                        for node in block.nodes.iter() {
-                            self.alloc_node_id(node)?;
-                        }
+            Node::Constant(_) | Node::Array(_) | Node::Block(_) | Node::Instr(_) => {}
+            Node::Emit(emit) => match emit.instr.as_ref() {
+                Node::Instr(instr) => {
+                    self.alloc_node_id(&instr.opcode)?;
+                    for operand in instr.operands.iter() {
+                        self.alloc_node_id(operand)?;
                     }
-                    _ => unreachable!(),
+                    if let Some(result_type) = instr.result_type.as_ref() {
+                        self.alloc_node_id(result_type)?;
+                    }
+
+                    if instr.has_result {
+                        self.node_id_tokens
+                            .insert(node.clone(), self.instr_ctxt.alloc_id());
+                    }
                 }
+                _ => unreachable!(),
+            },
+            Node::Instantiate(instantiate) => match instantiate.node.as_ref() {
+                Node::Block(block) => {
+                    for node in block.nodes.iter() {
+                        self.alloc_node_id(node)?;
+                    }
+                }
+                _ => unreachable!(),
             },
 
-            Node::Define(_) | Node::Lookup(_) | Node::Index(_) | Node::Length(_) | Node::Arg(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) | Node::Binary(_) => unreachable!("{:?}", node),
+            Node::Define(_)
+            | Node::Lookup(_)
+            | Node::Index(_)
+            | Node::Length(_)
+            | Node::Arg(_)
+            | Node::Layout(_)
+            | Node::IfThenElse(_)
+            | Node::While(_)
+            | Node::Variable(_)
+            | Node::Load(_)
+            | Node::Store(_)
+            | Node::Binary(_) => unreachable!("{:?}", node),
         }
 
         Ok(())
@@ -1064,61 +1129,74 @@ impl Lower {
                         }
 
                         if let Some(result_node) = block.result_node.as_ref() {
-                            let node = self.node_id_tokens.get(result_node)
+                            let node = self
+                                .node_id_tokens
+                                .get(result_node)
                                 .ok_or_else(|| anyhow!("result node not found"))?;
                             Some(node.clone())
                         } else {
                             None
                         }
-                    },
+                    }
                     _ => bail!("expected block, got: {:?}", instantiate.node),
                 }
-            },
-            Node::Emit(emit) => {
-                match emit.instr.as_ref() {
-                    Node::Instr(instr) => {
-                        let opcode = instr.opcode.as_constant()
-                            .and_then(|x| x.value.as_int())
-                            .and_then(|x| {
-                                if x < u16::MAX as i32 {
-                                    Some(x as u16)
-                                } else {
-                                    None
-                                }
-                            })
-                            .ok_or_else(|| anyhow!("opcode must be an u16"))?;
-                        let mut builder = self.instr_ctxt.build_instr(opcode);
-
-                        let mut operands = Vec::new();
-                        for operand in instr.operands.iter() {
-                            if let Some(x) = operand.as_constant() {
-                                operands.extend(x.value.to_words())
+            }
+            Node::Emit(emit) => match emit.instr.as_ref() {
+                Node::Instr(instr) => {
+                    let opcode = instr
+                        .opcode
+                        .as_constant()
+                        .and_then(|x| x.value.as_int())
+                        .and_then(|x| {
+                            if x < u16::MAX as i32 {
+                                Some(x as u16)
                             } else {
-                                if let Some(id_token) = self.node_id_tokens.get(operand) {
-                                    operands.push(id_token.get());
-                                } else {
-                                    bail!("id_ref not found: {:?}", operand);
-                                }
-                            };
-                        }
-                        builder.set_operands(operands);
-        
-                        if let Some(result_type) = instr.result_type.as_ref() {
-                            if let Some(id_token) = self.node_id_tokens.get(result_type) {
-                                builder.set_result_type(id_token);
+                                None
                             }
-                        }
+                        })
+                        .ok_or_else(|| anyhow!("opcode must be an u16"))?;
+                    let mut builder = self.instr_ctxt.build_instr(opcode);
 
-                        if let Some(id_token) = self.node_id_tokens.get(node) {
-                            builder.set_result_id(id_token);
+                    let mut operands = Vec::new();
+                    for operand in instr.operands.iter() {
+                        if let Some(x) = operand.as_constant() {
+                            operands.extend(x.value.to_words())
+                        } else {
+                            if let Some(id_token) = self.node_id_tokens.get(operand) {
+                                operands.push(id_token.get());
+                            } else {
+                                bail!("id_ref not found: {:?}", operand);
+                            }
+                        };
+                    }
+                    builder.set_operands(operands);
+
+                    if let Some(result_type) = instr.result_type.as_ref() {
+                        if let Some(id_token) = self.node_id_tokens.get(result_type) {
+                            builder.set_result_type(id_token);
                         }
-                        builder.build()
-                    },
-                    _ => bail!("expected instr, got: {:?}", emit.instr),
+                    }
+
+                    if let Some(id_token) = self.node_id_tokens.get(node) {
+                        builder.set_result_id(id_token);
+                    }
+                    builder.build()
                 }
+                _ => bail!("expected instr, got: {:?}", emit.instr),
             },
 
-            Node::Define(_) | Node::Lookup(_) | Node::Index(_) | Node::Length(_) | Node::Arg(_) | Node::Layout(_) | Node::IfThenElse(_) | Node::While(_) | Node::Variable(_) | Node::Load(_) | Node::Store(_) | Node::Binary(_) => unreachable!("{:?}", node),
+            Node::Define(_)
+            | Node::Lookup(_)
+            | Node::Index(_)
+            | Node::Length(_)
+            | Node::Arg(_)
+            | Node::Layout(_)
+            | Node::IfThenElse(_)
+            | Node::While(_)
+            | Node::Variable(_)
+            | Node::Load(_)
+            | Node::Store(_)
+            | Node::Binary(_) => unreachable!("{:?}", node),
         };
 
         Ok(out)

@@ -125,7 +125,8 @@ let return = {
 
 #[test]
 fn test_if_then_else() {
-    let code = HEADER.to_string() + r#"
+    let code = HEADER.to_string()
+        + r#"
 let glsl_std_450_ = glsl_450_compute_shader();
 
 let bool_ = ~Op::TypeBool() -> _;
@@ -180,7 +181,9 @@ make_entry_point(
 
     let dis = spirv.disassemble();
 
-    assert_eq!(dis, r#"
+    assert_eq!(
+        dis,
+        r#"
 OpCapability Shader
 %1 = OpExtInstImport "GLSL.std.450"
 OpMemoryModel Logical GLSL450
@@ -192,5 +195,7 @@ OpExecutionMode %4 LocalSize 16 8 1
 %5 = OpLabel
 OpReturn
 OpFunctionEnd
-"#.trim());
+"#
+        .trim()
+    );
 }

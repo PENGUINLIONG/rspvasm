@@ -1,7 +1,7 @@
+use super::{punctuated::Punctuated, token::*};
+use super::{Parse, ParseBuffer};
+use crate::{compiler::common::span::Span, Token};
 use anyhow::Result;
-use super::{ token::*, punctuated::Punctuated };
-use crate::{Token, compiler::common::span::Span};
-use super::{ Parse, ParseBuffer };
 
 #[derive(Debug, Clone)]
 pub struct Path {

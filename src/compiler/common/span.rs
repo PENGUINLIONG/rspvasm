@@ -61,11 +61,9 @@ pub struct FileInfo {
 }
 
 thread_local!(
-    static FILE_INFOS: RefCell<Vec<FileInfo>> = RefCell::new(vec![
-        FileInfo {
-            source_text: String::from(""),
-            span: Span { lo: 0, hi: 0 },
-            lines: vec![0],
-        }
-    ]);
+    static FILE_INFOS: RefCell<Vec<FileInfo>> = RefCell::new(vec![FileInfo {
+        source_text: String::from(""),
+        span: Span { lo: 0, hi: 0 },
+        lines: vec![0],
+    }]);
 );
