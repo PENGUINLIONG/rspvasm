@@ -1,16 +1,20 @@
 use super::*;
 
 use crate::compiler::{l0ir::SpirvBinary, l3ir};
-use rspirv::binary::Disassemble;
 
 use pretty_assertions::assert_eq;
 
 fn disassemble_spirv(spirv: &[u32]) -> String {
-    let mut d = rspirv::dr::Loader::new();
-    rspirv::binary::parse_words(spirv, &mut d).unwrap();
-    let mut module = d.module();
-    module.header = None;
-    module.disassemble()
+    use spirq_spvasm::{Disassembler, SpirvBinary};
+    let spv = SpirvBinary::from(spirv);
+    let spvasm = Disassembler::new()
+        .indent(false)
+        .print_header(false)
+        .disassemble(&spv)
+        .unwrap()
+        .trim()
+        .to_owned();
+    spvasm
 }
 
 fn make_int_constant(x: i32) -> NodeRef {

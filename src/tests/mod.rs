@@ -126,7 +126,7 @@ OpEntryPoint GLCompute %4 "main"
 OpExecutionMode %4 LocalSize 1 1 1
 %2 = OpTypeVoid
 %3 = OpTypeFunction %2
-%4 = OpFunction  %2  None %3
+%4 = OpFunction %2 None %3
 %5 = OpLabel
 OpReturn
 OpFunctionEnd
@@ -171,7 +171,7 @@ OpEntryPoint GLCompute %4 "main"
 OpExecutionMode %4 LocalSize 1 1 1
 %2 = OpTypeVoid
 %3 = OpTypeFunction %2
-%4 = OpFunction  %2  None %3
+%4 = OpFunction %2 None %3
 %5 = OpLabel
 OpReturn
 OpFunctionEnd
@@ -222,7 +222,7 @@ OpEntryPoint GLCompute %4 "main"
 OpExecutionMode %4 LocalSize 1 1 1
 %2 = OpTypeVoid
 %3 = OpTypeFunction %2
-%4 = OpFunction  %2  None %3
+%4 = OpFunction %2 None %3
 %5 = OpLabel
 OpReturn
 OpFunctionEnd
@@ -285,7 +285,7 @@ OpEntryPoint GLCompute %4 "main"
 OpExecutionMode %4 LocalSize 16 8 1
 %2 = OpTypeVoid
 %3 = OpTypeFunction %2
-%4 = OpFunction  %2  None %3
+%4 = OpFunction %2 None %3
 %5 = OpLabel
 OpReturn
 OpFunctionEnd
@@ -355,7 +355,7 @@ OpEntryPoint GLCompute %4 "main"
 OpExecutionMode %4 LocalSize 16 8 1
 %2 = OpTypeVoid
 %3 = OpTypeFunction %2
-%4 = OpFunction  %2  None %3
+%4 = OpFunction %2 None %3
 %5 = OpLabel
 OpReturn
 OpFunctionEnd

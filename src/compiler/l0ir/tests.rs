@@ -9,7 +9,9 @@ fn disassemble_spirv(spirv: &[u32]) -> String {
         .indent(false)
         .print_header(false)
         .disassemble(&spv)
-        .unwrap();
+        .unwrap()
+        .trim()
+        .to_owned();
     spvasm
 }
 
@@ -80,7 +82,7 @@ fn test_op_with_result_type() {
         dis,
         r#"
 %1 = OpTypeInt 32 1
-%2 = OpConstant  %1  1
+%2 = OpConstant %1 1
 "#
         .trim()
     );

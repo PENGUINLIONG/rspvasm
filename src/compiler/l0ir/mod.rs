@@ -269,7 +269,9 @@ impl SpirvBinary {
             .indent(false)
             .print_header(false)
             .disassemble(&spv)
-            .unwrap();
+            .unwrap()
+            .trim()
+            .to_owned();
         spvasm
     }
 }

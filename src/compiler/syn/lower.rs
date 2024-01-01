@@ -347,7 +347,9 @@ mod tests {
             .indent(false)
             .print_header(false)
             .disassemble(&spv)
-            .unwrap();
+            .unwrap()
+            .trim()
+            .to_owned();
         spvasm
     }
 
@@ -466,7 +468,7 @@ let constant_1 = ~Op::Constant(1) -> int;
             dis,
             r#"
 %1 = OpTypeInt 32 1
-%2 = OpConstant  %1  1
+%2 = OpConstant %1 1
 "#
             .trim()
         );
@@ -496,7 +498,7 @@ let constant_1 = ~Op::Constant(1) -> int;
             r#"
 %1 = OpTypeInt 32 1
 %2 = OpTypeInt 32 1
-%3 = OpConstant  %2  1
+%3 = OpConstant %2 1
 "#
             .trim()
         );
@@ -528,7 +530,7 @@ let constant_1 = ~Op::Constant(1) -> int;
             dis,
             r#"
 %1 = OpTypeInt 32 1
-%2 = OpConstant  %1  1
+%2 = OpConstant %1 1
 "#
             .trim()
         );
@@ -561,7 +563,7 @@ make_constant(value: 1, ty: int);
             dis,
             r#"
 %1 = OpTypeInt 32 1
-%2 = OpConstant  %1  1
+%2 = OpConstant %1 1
 "#
             .trim()
         );
@@ -598,7 +600,7 @@ make_constant(value: 1, ty: make_int_type());
             dis,
             r#"
 %1 = OpTypeInt 32 1
-%2 = OpConstant  %1  1
+%2 = OpConstant %1 1
 "#
             .trim()
         );
@@ -635,7 +637,7 @@ make_constant(value: 1, ty: make_int32_type);
             dis,
             r#"
 %1 = OpTypeInt 32 1
-%2 = OpConstant  %1  1
+%2 = OpConstant %1 1
     "#
             .trim()
         );
@@ -667,7 +669,7 @@ let int = if true {
             dis,
             r#"
 %1 = OpTypeInt 32 1
-%2 = OpConstant  %1  1
+%2 = OpConstant %1 1
         "#
             .trim()
         );
